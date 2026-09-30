@@ -152,16 +152,24 @@ class VlessWsScanner(
                     ?: return result(false, "VLESS", "WebSocket 连接提前关闭")
 
                 if (frame.opcode == 0x8) {
-                    return result(false, "VLESS", "服务器关闭 WebSocket")
+                    return result(false, "VLESS", describeCloseFrame(frame.payload))
                 }
 
                 if (frame.opcode != 0x2 || frame.payload.size < 2) {
-                    return result(false, "VLESS", "未收到 VLESS 二进制响应")
+                    return result(
+                        false,
+                        "VLESS",
+                        "未收到 VLESS 二进制响应: opcode=${frame.opcode}, payload=${hexPreview(frame.payload)}"
+                    )
                 }
 
                 val version = frame.payload[0].toInt() and 0xFF
                 if (version != 1) {
-                    return result(false, "VLESS", "VLESS 响应版本=$version")
+                    return result(
+                        false,
+                        "VLESS",
+                        "VLESS 响应版本=$version, payload=${hexPreview(frame.payload)}"
+                    )
                 }
 
                 return result(true, "VLESS")
@@ -289,6 +297,46 @@ class VlessWsScanner(
         }
 
         return WsFrame(opcode, payload)
+    }
+
+    private fun describeCloseFrame(payload: ByteArray): String {
+        if (payload.size < 2) {
+            return "服务器关闭 WebSocket: close payload=${hexPreview(payload)}"
+        }
+
+        val code = ((payload[0].toInt() and 0xFF) shl 8) or
+            (payload[1].toInt() and 0xFF)
+
+        val reason = if (payload.size > 2) {
+            payload.copyOfRange(2, payload.size)
+                .toString(Charsets.UTF_8)
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .trim()
+        } else {
+            ""
+        }
+
+        return if (reason.isEmpty()) {
+            "服务器关闭 WebSocket: code=$code, payload=${hexPreview(payload)}"
+        } else {
+            "服务器关闭 WebSocket: code=$code, reason=$reason"
+        }
+    }
+
+    private fun hexPreview(payload: ByteArray, maxBytes: Int = 32): String {
+        if (payload.isEmpty()) return "<empty>"
+
+        val count = minOf(payload.size, maxBytes)
+        val hex = payload.take(count).joinToString("") { byte ->
+            "%02x".format(byte.toInt() and 0xFF)
+        }
+
+        return if (payload.size > count) {
+            "${hex}..."
+        } else {
+            hex
+        }
     }
 
     private fun readFully(input: BufferedInputStream, target: ByteArray) {
