@@ -74,10 +74,9 @@ class HttpsTraceScanner(
                     append("\r\n")
                 }
 
-                it.outputStream.bufferedWriter().use { writer ->
-                    writer.write(request)
-                    writer.flush()
-                }
+                val writer = it.outputStream.bufferedWriter()
+                writer.write(request)
+                writer.flush()
 
                 val reader = BufferedReader(InputStreamReader(it.inputStream, Charsets.UTF_8))
                 val response = reader.readText()
