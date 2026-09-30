@@ -73,6 +73,7 @@ class MainActivity : Activity() {
             startButton.isEnabled = false
             themeButton.isEnabled = false
             statusText.text = "正在获取 Cloudflare IPv4 网段…"
+            resultText.visibility = View.VISIBLE
             resultText.text = "准备测速…"
             resultTable.visibility = View.GONE
             resultTable.removeAllViews()
@@ -167,11 +168,8 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         downloadValue.text = downloadResults.size.toString()
                         statusText.text = "测速完成 · 已按下载速度排序"
-                        resultText.text = if (successfulResults.isEmpty()) {
-                            "没有成功的下载测速结果。"
-                        } else {
-                            "结果已按下载速度排序"
-                        }
+                        resultText.visibility = if (successfulResults.isEmpty()) View.VISIBLE else View.GONE
+                        resultText.text = "没有成功的下载测速结果。"
 
                         resultTable.removeAllViews()
                         resultTable.visibility = View.VISIBLE
