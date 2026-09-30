@@ -2,13 +2,13 @@
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_enabled="false">
         <shape>
-            <solid android:color="@color/box_surface_alt" />
+            <solid android:color="?attr/boxSurfaceAlt" />
             <corners android:radius="15dp" />
         </shape>
     </item>
     <item>
         <shape>
-            <solid android:color="@color/box_accent" />
+            <solid android:color="?attr/boxAccent" />
             <corners android:radius="15dp" />
         </shape>
     </item>
