@@ -5,8 +5,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 data class CloudflareIpRanges(
-    val ipv4: List<String>,
-    val ipv6: List<String>
+    val ipv4: List<String>
 )
 
 class CloudflareIpProvider {
@@ -21,11 +20,9 @@ class CloudflareIpProvider {
         try {
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             val result = JSONObject(response).getJSONObject("result")
-
             val ipv4 = jsonArrayToList(result.getJSONArray("ipv4_cidrs"))
-            val ipv6 = jsonArrayToList(result.getJSONArray("ipv6_cidrs"))
 
-            return CloudflareIpRanges(ipv4, ipv6)
+            return CloudflareIpRanges(ipv4)
         } finally {
             connection.disconnect()
         }
