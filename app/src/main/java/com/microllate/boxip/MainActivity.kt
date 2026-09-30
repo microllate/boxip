@@ -1,6 +1,9 @@
 package com.microllate.boxip
 
 import android.app.Activity
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
@@ -20,6 +23,7 @@ class MainActivity : Activity() {
         val statusText = findViewById<TextView>(R.id.statusText)
         val resultText = findViewById<TextView>(R.id.resultText)
         val startButton = findViewById<Button>(R.id.startScanButton)
+        val connectivityManager = getSystemService(ConnectivityManager::class.java)
 
         startButton.setOnClickListener {
             startButton.isEnabled = false
@@ -35,14 +39,29 @@ class MainActivity : Activity() {
                         statusText.text = "第一轮：TCP 443 可达性测试..."
                     }
 
-                    val tcpResults = TcpScanner().scan(candidates)
+                    val physicalNetwork = connectivityManager.allNetworks
+                        .firstOrNull { network ->
+                            val capabilities = connectivityManager.getNetworkCapabilities(network)
+                            capabilities != null &&
+                                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                                (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) &&
+                                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                        }
+
+                    if (physicalNetwork == null) {
+                        throw IllegalStateException("没有找到可用的 Wi-Fi/移动数据物理网络")
+                    }
+
+                    val tcpResults = TcpScanner(network = physicalNetwork).scan(candidates)
                     val tcpSuccessful = tcpResults.filter { it.success }
 
                     statusText.post {
                         statusText.text = "第二轮：HTTPS + SNI + /cdn-cgi/trace..."
                     }
 
-                    val httpsResults = HttpsTraceScanner().scan(
+                    val httpsResults = HttpsTraceScanner(network = physicalNetwork).scan(
                         ips = tcpSuccessful.map { it.ip },
                         host = TEST_HOST
                     )
