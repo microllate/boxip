@@ -56,6 +56,20 @@ class MainActivity : Activity() {
                         concurrency = 20
                     ).scan(candidates)
 
+                    val downloadCandidates = results.take(20)
+
+                    statusText.post {
+                        statusText.text = "CFST：正在下载测速前 20 个 IP..."
+                    }
+
+                    val downloadResults = CfstDownloader(
+                        network = physicalNetwork,
+                        timeoutMs = 10_000,
+                        connectTimeoutMs = 3_000
+                    ).download(downloadCandidates.map { it.ip })
+
+                    val resultByIp = downloadResults.associateBy { it.ip }
+
                     val output = buildString {
                         append("Cloudflare IPv4 网段：")
                         append(ranges.ipv4.size)
@@ -63,20 +77,30 @@ class MainActivity : Activity() {
                         append(candidates.size)
                         append("\nTCPing 可用：")
                         append(results.size)
-                        append("\n\nIP                丢包     平均延迟\n")
+                        append("\n下载测速候选：")
+                        append(downloadCandidates.size)
+                        append("\n下载测速成功：")
+                        append(downloadResults.size)
+                        append("\n\nIP                丢包     延迟      下载速度\n")
 
-                        results.take(20).forEach { result ->
-                            append(String.format(
-                                "%-16s  %.0f%%      %s ms\n",
-                                result.ip,
-                                result.lossRate * 100,
-                                result.latencyMs?.toString() ?: "-"
-                            ))
-                        }
+                        downloadCandidates.mapNotNull { scanResult ->
+                            resultByIp[scanResult.ip]?.let { downloadResult ->
+                                scanResult to downloadResult
+                            }
+                        }.sortedByDescending { it.second.downloadSpeedMbps }
+                            .forEach { (scanResult, downloadResult) ->
+                                append(String.format(
+                                    "%-16s  %.0f%%      %-7s  %.2f MB/s\n",
+                                    scanResult.ip,
+                                    scanResult.lossRate * 100,
+                                    scanResult.latencyMs?.toString() ?: "-",
+                                    downloadResult.downloadSpeedMbps
+                                ))
+                            }
                     }
 
                     runOnUiThread {
-                        statusText.text = "CFST 延迟测速完成"
+                        statusText.text = "CFST 下载测速完成"
                         resultText.text = output
                         startButton.isEnabled = true
                     }
