@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="boxBackground" format="color" />
+    <attr name="boxSurface" format="color" />
+    <attr name="boxSurfaceAlt" format="color" />
+    <attr name="boxTextPrimary" format="color" />
+    <attr name="boxTextSecondary" format="color" />
+    <attr name="boxTextMuted" format="color" />
+    <attr name="boxAccent" format="color" />
+    <attr name="boxOnAccent" format="color" />
+    <attr name="boxDivider" format="color" />
+</resources>
