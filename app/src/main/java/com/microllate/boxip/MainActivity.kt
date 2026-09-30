@@ -37,9 +37,9 @@ class MainActivity : Activity() {
             // The 12dp base spacing preserves the intended visual margin.
             view.setPadding(
                 view.paddingLeft,
-                12.dp() + insets.systemWindowInsetTop,
+                dp(12) + insets.systemWindowInsetTop,
                 view.paddingRight,
-                12.dp() + insets.systemWindowInsetBottom
+                dp(12) + insets.systemWindowInsetBottom
             )
             insets
         }
@@ -228,7 +228,7 @@ class MainActivity : Activity() {
         )
         cell.textSize = if (header) 13f else 12f
         cell.gravity = Gravity.CENTER_VERTICAL
-        cell.setPadding(6.dp(), 8.dp(), 6.dp(), 8.dp)
+        cell.setPadding(dp(6), dp(8), dp(6), dp(8))
         cell.includeFontPadding = false
         cell.maxLines = 1
         row.addView(cell, TableRow.LayoutParams(0, TableRow.LayoutParams.WRAP_CONTENT, 1f))
@@ -244,8 +244,8 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun Int.dp(): Int {
-        return (this * resources.displayMetrics.density + 0.5f).toInt()
+    private fun dp(value: Int): Int {
+        return (value * resources.displayMetrics.density + 0.5f).toInt()
     }
 
     private fun currentThemeMode(): Int {
