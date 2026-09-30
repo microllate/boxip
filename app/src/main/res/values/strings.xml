@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BoxIP</string>
-    <string name="app_description">轻量 CFST：Cloudflare IP 延迟 / 丢包测速</string>
+    <string name="app_description">Cloudflare Edge 网络测速工具</string>
     <string name="start_scan">开始测速</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色模式</string>
+    <string name="theme_dark">深色模式</string>
+    <string name="stat_ranges">CF 网段</string>
+    <string name="stat_candidates">候选 IP</string>
+    <string name="stat_tcp">TCP 可用</string>
+    <string name="stat_download">下载成功</string>
+    <string name="result_title">测速结果</string>
 </resources>
