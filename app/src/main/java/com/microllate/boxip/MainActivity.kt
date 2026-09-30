@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import java.util.Locale
@@ -26,6 +27,20 @@ class MainActivity : Activity() {
         applySavedTheme()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        val rootLayout = findViewById<View>(R.id.rootLayout)
+        rootLayout.setOnApplyWindowInsetsListener { view, insets ->
+            // Keep the app content below the status bar and above the navigation bar.
+            // The 12dp base spacing preserves the intended visual margin.
+            view.setPadding(
+                view.paddingLeft,
+                12.dp() + insets.systemWindowInsetTop,
+                view.paddingRight,
+                12.dp() + insets.systemWindowInsetBottom
+            )
+            insets
+        }
+        rootLayout.requestApplyInsets()
 
         val statusText = findViewById<TextView>(R.id.statusText)
         val resultText = findViewById<TextView>(R.id.resultText)
@@ -157,6 +172,10 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun Int.dp(): Int {
+        return (this * resources.displayMetrics.density + 0.5f).toInt()
     }
 
     private fun currentThemeMode(): Int {
