@@ -3,6 +3,7 @@ package com.microllate.boxip
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.InetSocketAddress
+import android.net.Network
 import java.net.SocketTimeoutException
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -21,6 +22,7 @@ data class HttpsTraceResult(
 )
 
 class HttpsTraceScanner(
+    private val network: Network,
     private val timeoutMs: Int = 5000,
     private val concurrency: Int = 12
 ) {
@@ -54,7 +56,7 @@ class HttpsTraceScanner(
             val sslContext = SSLContext.getInstance("TLS")
             sslContext.init(null, null, null)
 
-            val socket = sslContext.socketFactory.createSocket() as SSLSocket
+            val socket = network.socketFactory.createSocket() as SSLSocket
             socket.use {
                 it.soTimeout = timeoutMs
                 it.connect(InetSocketAddress(ip, 443), timeoutMs)
