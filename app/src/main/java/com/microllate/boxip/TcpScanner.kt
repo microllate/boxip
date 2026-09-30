@@ -1,5 +1,6 @@
 package com.microllate.boxip
 
+import android.net.Network
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.Callable
@@ -13,6 +14,7 @@ data class TcpScanResult(
 )
 
 class TcpScanner(
+    private val network: Network,
     private val timeoutMs: Int = 1500,
     private val concurrency: Int = 20
 ) {
@@ -43,8 +45,9 @@ class TcpScanner(
         val start = System.nanoTime()
 
         return try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(ip, 443), timeoutMs)
+            val socket = network.socketFactory.createSocket()
+            socket.use {
+                it.connect(InetSocketAddress(ip, 443), timeoutMs)
             }
 
             TcpScanResult(
