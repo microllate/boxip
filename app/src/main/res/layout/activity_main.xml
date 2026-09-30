@@ -247,12 +247,13 @@
                 android:textSize="13sp"
                 android:text="等待测速…" />
 
-            <LinearLayout
+            <TableLayout
                 android:id="@+id/resultTable"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:orientation="vertical"
+                android:stretchColumns="0"
+                android:shrinkColumns="none"
                 android:visibility="gone" />
         </LinearLayout>
     </ScrollView>
