@@ -79,7 +79,6 @@ class MainActivity : Activity() {
             executor.execute {
                 try {
                     val ranges = CloudflareIpProvider().fetch()
-                    val candidates = CfstSampler().sample(ranges.ipv4)
 
                     val physicalNetwork = connectivityManager.allNetworks
                         .firstOrNull { network ->
@@ -96,11 +95,27 @@ class MainActivity : Activity() {
                         throw IllegalStateException("没有找到可用的 Wi-Fi/移动数据物理网络")
                     }
 
+                    val physicalCapabilities =
+                        connectivityManager.getNetworkCapabilities(physicalNetwork)
+                            ?: throw IllegalStateException("无法读取物理网络状态")
+
+                    val networkKey = when {
+                        physicalCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                        physicalCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                        else -> "other"
+                    }
+
+                    val sampler = CfstSampler(
+                        context = this@MainActivity,
+                        networkKey = networkKey
+                    )
+                    val candidates = sampler.sample(ranges.ipv4)
+
                     runOnUiThread {
                         rangesValue.text = ranges.ipv4.size.toString()
                         candidatesValue.text = candidates.size.toString()
-                        statusText.text = "第一阶段 · TCPing 443"
-                        resultText.text = "正在测试 ${candidates.size} 个候选 IP…"
+                        statusText.text = "第一阶段 · 自适应 TCPing 443"
+                        resultText.text = "历史优选 + 随机探索，正在测试 ${candidates.size} 个候选 IP…"
                     }
 
                     val results = CfstScanner(
@@ -125,6 +140,18 @@ class MainActivity : Activity() {
                     ).download(downloadCandidates.map { it.ip })
 
                     val resultByIp = downloadResults.associateBy { it.ip }
+
+                    sampler.record(
+                        downloadCandidates.map { scanResult ->
+                            val downloadResult = resultByIp[scanResult.ip]
+                            CfstLearningObservation(
+                                ip = scanResult.ip,
+                                downloadSpeedMbps = downloadResult?.downloadSpeedMbps ?: 0.0,
+                                latencyMs = scanResult.latencyMs,
+                                success = downloadResult != null
+                            )
+                        }
+                    )
 
                     val output = buildString {
                         append(String.format(
