@@ -7,7 +7,10 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.view.View
+import android.view.Gravity
 import android.widget.Button
+import android.widget.TableLayout
+import android.widget.TableRow
 import android.widget.TextView
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -44,6 +47,7 @@ class MainActivity : Activity() {
 
         val statusText = findViewById<TextView>(R.id.statusText)
         val resultText = findViewById<TextView>(R.id.resultText)
+        val resultTable = findViewById<TableLayout>(R.id.resultTable)
         val startButton = findViewById<Button>(R.id.startScanButton)
         val themeButton = findViewById<TextView>(R.id.themeButton)
         val rangesValue = findViewById<TextView>(R.id.rangesValue)
@@ -71,6 +75,8 @@ class MainActivity : Activity() {
             themeButton.isEnabled = false
             statusText.text = "正在获取 Cloudflare IPv4 网段…"
             resultText.text = "准备测速…"
+            resultTable.visibility = View.GONE
+            resultTable.removeAllViews()
             rangesValue.text = "—"
             candidatesValue.text = "—"
             tcpValue.text = "—"
@@ -153,39 +159,52 @@ class MainActivity : Activity() {
                         }
                     )
 
-                    val output = buildString {
-                        append(String.format(
-                            Locale.US,
-                            "%-15s %5s %7s %12s\n",
-                            "IP", "丢包", "延迟", "下载速度"
-                        ))
-                        append("────────────────────────────────────────\n")
-
-                        downloadCandidates.mapNotNull { scanResult ->
-                            resultByIp[scanResult.ip]?.let { downloadResult ->
-                                scanResult to downloadResult
-                            }
-                        }.sortedByDescending { it.second.downloadSpeedMbps }
-                            .forEach { (scanResult, downloadResult) ->
-                                append(String.format(
-                                    Locale.US,
-                                    "%-15s %4.0f%% %6s ms %10.2f MB/s\n",
-                                    scanResult.ip,
-                                    scanResult.lossRate * 100,
-                                    scanResult.latencyMs?.toString() ?: "-",
-                                    downloadResult.downloadSpeedMbps
-                                ))
-                            }
-
-                        if (downloadResults.isEmpty()) {
-                            append("\n没有成功的下载测速结果。")
+                    val successfulResults = downloadCandidates.mapNotNull { scanResult ->
+                        resultByIp[scanResult.ip]?.let { downloadResult ->
+                            scanResult to downloadResult
                         }
-                    }
+                    }.sortedByDescending { it.second.downloadSpeedMbps }
 
                     runOnUiThread {
                         downloadValue.text = downloadResults.size.toString()
                         statusText.text = "测速完成 · 已按下载速度排序"
-                        resultText.text = output
+                        resultText.text = if (successfulResults.isEmpty()) {
+                            "没有成功的下载测速结果。"
+                        } else {
+                            "结果已按下载速度排序"
+                        }
+
+                        resultTable.removeAllViews()
+                        resultTable.visibility = View.VISIBLE
+
+                        val header = TableRow(this@MainActivity)
+                        addResultCell(header, "IP", true)
+                        addResultCell(header, "丢包", true)
+                        addResultCell(header, "延迟", true)
+                        addResultCell(header, "速度", true)
+                        resultTable.addView(header)
+
+                        successfulResults.forEach { (scanResult, downloadResult) ->
+                            val row = TableRow(this@MainActivity)
+                            addResultCell(row, scanResult.ip, false)
+                            addResultCell(
+                                row,
+                                String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
+                                false
+                            )
+                            addResultCell(
+                                row,
+                                "${scanResult.latencyMs?.toString() ?: "-"} ms",
+                                false
+                            )
+                            addResultCell(
+                                row,
+                                String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
+                                false
+                            )
+                            resultTable.addView(row)
+                        }
+
                         startButton.isEnabled = true
                         themeButton.isEnabled = true
                     }
@@ -198,6 +217,30 @@ class MainActivity : Activity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun addResultCell(row: TableRow, text: String, header: Boolean) {
+        val cell = TextView(this)
+        cell.text = text
+        cell.setTextColor(
+            getThemeColor(if (header) R.attr.boxTextPrimary else R.attr.boxTextSecondary)
+        )
+        cell.textSize = if (header) 13f else 12f
+        cell.gravity = Gravity.CENTER_VERTICAL
+        cell.setPadding(6.dp(), 8.dp(), 6.dp(), 8.dp)
+        cell.includeFontPadding = false
+        cell.maxLines = 1
+        row.addView(cell, TableRow.LayoutParams(0, TableRow.LayoutParams.WRAP_CONTENT, 1f))
+    }
+
+    private fun getThemeColor(attr: Int): Int {
+        val typedValue = android.util.TypedValue()
+        theme.resolveAttribute(attr, typedValue, true)
+        return if (typedValue.resourceId != 0) {
+            getColor(typedValue.resourceId)
+        } else {
+            typedValue.data
         }
     }
 
