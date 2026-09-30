@@ -4,6 +4,9 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
@@ -18,15 +21,30 @@ data class HttpsTraceResult(
 )
 
 class HttpsTraceScanner(
-    private val timeoutMs: Int = 5000
+    private val timeoutMs: Int = 5000,
+    private val concurrency: Int = 12
 ) {
     fun scan(ips: List<String>, host: String): List<HttpsTraceResult> {
-        return ips.distinct().map { ip ->
-            test(ip, host)
-        }.sortedWith(
-            compareBy<HttpsTraceResult> { !it.success }
-                .thenBy { it.latencyMs ?: Long.MAX_VALUE }
-        )
+        if (ips.isEmpty()) return emptyList()
+
+        val executor = Executors.newFixedThreadPool(concurrency.coerceAtLeast(1))
+
+        try {
+            val tasks = ips.distinct().map { ip ->
+                Callable { test(ip, host) }
+            }
+
+            return executor.invokeAll(tasks)
+                .map { it.get() }
+                .sortedWith(
+                    compareBy<HttpsTraceResult> { !it.success }
+                        .thenBy { it.latencyMs ?: Long.MAX_VALUE }
+                )
+        } finally {
+            executor.shutdown()
+            executor.awaitTermination(10, TimeUnit.SECONDS)
+            executor.shutdownNow()
+        }
     }
 
     private fun test(ip: String, host: String): HttpsTraceResult {
