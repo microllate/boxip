@@ -12,6 +12,8 @@ import android.view.View
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.TableLayout
+import android.widget.TableRow
 import android.widget.TextView
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -48,7 +50,7 @@ class MainActivity : Activity() {
 
         val statusText = findViewById<TextView>(R.id.statusText)
         val resultText = findViewById<TextView>(R.id.resultText)
-        val resultTable = findViewById<LinearLayout>(R.id.resultTable)
+        val resultTable = findViewById<TableLayout>(R.id.resultTable)
         val startButton = findViewById<Button>(R.id.startScanButton)
         val themeButton = findViewById<TextView>(R.id.themeButton)
         val rangesValue = findViewById<TextView>(R.id.rangesValue)
@@ -207,7 +209,7 @@ class MainActivity : Activity() {
     }
 
     private fun renderResults(
-        resultTable: LinearLayout,
+        resultTable: TableLayout,
         successfulResults: List<Pair<CfstScanResult, CfstDownloadResult>>
     ) {
         resultTable.removeAllViews()
@@ -348,13 +350,12 @@ class MainActivity : Activity() {
         latency: String,
         speed: String,
         header: Boolean
-    ): LinearLayout {
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
+    ): TableRow {
+        val row = TableRow(this)
         row.gravity = Gravity.CENTER_VERTICAL
 
         val values = listOf(ip, loss, latency, speed)
-        values.forEach { value ->
+        values.forEachIndexed { index, value ->
             val cell = TextView(this)
             cell.text = value
             cell.setTextColor(
@@ -363,19 +364,23 @@ class MainActivity : Activity() {
                 )
             )
             cell.textSize = if (header) 13f else 12f
-            cell.gravity = Gravity.CENTER_VERTICAL
-            cell.setPadding(dp(4), dp(8), dp(4), dp(8))
+            cell.gravity = if (header) {
+                Gravity.CENTER
+            } else {
+                if (index == 0) Gravity.START else Gravity.CENTER
+            }
+            cell.setPadding(dp(7), dp(8), dp(7), dp(8))
             cell.includeFontPadding = false
             cell.maxLines = 1
             row.addView(
                 cell,
-                LinearLayout.LayoutParams(
-                    0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    1f
+                TableRow.LayoutParams(
+                    TableRow.LayoutParams.WRAP_CONTENT,
+                    TableRow.LayoutParams.WRAP_CONTENT
                 )
             )
         }
+
         return row
     }
 
