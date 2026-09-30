@@ -2,13 +2,21 @@
 <resources>
     <style name="Theme.BoxIP" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:statusBarColor">@color/box_background</item>
         <item name="android:navigationBarColor">@color/box_background</item>
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:colorAccent">@color/box_accent</item>
         <item name="android:windowBackground">@color/box_background</item>
+        <item name="boxBackground">@color/box_background</item>
+        <item name="boxSurface">@color/box_surface</item>
+        <item name="boxSurfaceAlt">@color/box_surface_alt</item>
+        <item name="boxTextPrimary">@color/box_text_primary</item>
+        <item name="boxTextSecondary">@color/box_text_secondary</item>
+        <item name="boxTextMuted">@color/box_text_muted</item>
+        <item name="boxAccent">@color/box_accent</item>
+        <item name="boxOnAccent">@color/box_on_accent</item>
+        <item name="boxDivider">@color/box_divider</item>
     </style>
 
     <style name="Theme.BoxIP.Light" parent="android:style/Theme.Material.Light.NoActionBar">
@@ -19,6 +27,15 @@
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:colorAccent">@color/box_accent</item>
         <item name="android:windowBackground">@color/box_background</item>
+        <item name="boxBackground">@color/box_background</item>
+        <item name="boxSurface">@color/box_surface</item>
+        <item name="boxSurfaceAlt">@color/box_surface_alt</item>
+        <item name="boxTextPrimary">@color/box_text_primary</item>
+        <item name="boxTextSecondary">@color/box_text_secondary</item>
+        <item name="boxTextMuted">@color/box_text_muted</item>
+        <item name="boxAccent">@color/box_accent</item>
+        <item name="boxOnAccent">@color/box_on_accent</item>
+        <item name="boxDivider">@color/box_divider</item>
     </style>
 
     <style name="Theme.BoxIP.Dark" parent="android:style/Theme.Material.NoActionBar">
@@ -29,5 +46,14 @@
         <item name="android:windowLightNavigationBar">false</item>
         <item name="android:colorAccent">@color/box_accent</item>
         <item name="android:windowBackground">@color/box_background</item>
+        <item name="boxBackground">#0E1117</item>
+        <item name="boxSurface">#171B23</item>
+        <item name="boxSurfaceAlt">#202631</item>
+        <item name="boxTextPrimary">#F2F4F7</item>
+        <item name="boxTextSecondary">#AAB2BF</item>
+        <item name="boxTextMuted">#778191</item>
+        <item name="boxAccent">#60A5FA</item>
+        <item name="boxOnAccent">#07111F</item>
+        <item name="boxDivider">#2A313D</item>
     </style>
 </resources>
