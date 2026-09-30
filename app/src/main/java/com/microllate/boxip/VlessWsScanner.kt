@@ -214,12 +214,31 @@ class VlessWsScanner(
         output.write((port ushr 8) and 0xFF)
         output.write(port and 0xFF)
 
-        val addressBytes = address.toByteArray(Charsets.US_ASCII)
-        output.write(2)
-        output.write(addressBytes.size)
-        output.write(addressBytes)
+        val ipv4 = parseIpv4(address)
+        if (ipv4 != null) {
+            output.write(1)
+            output.write(ipv4)
+        } else {
+            val addressBytes = address.toByteArray(Charsets.US_ASCII)
+            output.write(2)
+            output.write(addressBytes.size)
+            output.write(addressBytes)
+        }
 
         return output.toByteArray()
+    }
+
+    private fun parseIpv4(address: String): ByteArray? {
+        val parts = address.split(".")
+        if (parts.size != 4) return null
+
+        val bytes = ByteArray(4)
+        for (i in 0 until 4) {
+            val value = parts[i].toIntOrNull() ?: return null
+            if (value !in 0..255) return null
+            bytes[i] = value.toByte()
+        }
+        return bytes
     }
 
     private fun uuidToBytes(uuid: UUID): ByteArray {
