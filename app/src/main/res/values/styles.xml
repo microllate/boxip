@@ -41,11 +41,11 @@
     <style name="Theme.BoxIP.Dark" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:statusBarColor">@color/box_background</item>
-        <item name="android:navigationBarColor">@color/box_background</item>
+        <item name="android:statusBarColor">#0E1117</item>
+        <item name="android:navigationBarColor">#0E1117</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:colorAccent">@color/box_accent</item>
-        <item name="android:windowBackground">@color/box_background</item>
+        <item name="android:colorAccent">#60A5FA</item>
+        <item name="android:windowBackground">#0E1117</item>
         <item name="boxBackground">#0E1117</item>
         <item name="boxSurface">#171B23</item>
         <item name="boxSurfaceAlt">#202631</item>
