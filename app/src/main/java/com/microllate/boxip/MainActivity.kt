@@ -9,8 +9,7 @@ import android.os.Bundle
 import android.view.View
 import android.view.Gravity
 import android.widget.Button
-import android.widget.TableLayout
-import android.widget.TableRow
+import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -47,7 +46,7 @@ class MainActivity : Activity() {
 
         val statusText = findViewById<TextView>(R.id.statusText)
         val resultText = findViewById<TextView>(R.id.resultText)
-        val resultTable = findViewById<TableLayout>(R.id.resultTable)
+        val resultTable = findViewById<LinearLayout>(R.id.resultTable)
         val startButton = findViewById<Button>(R.id.startScanButton)
         val themeButton = findViewById<TextView>(R.id.themeButton)
         val rangesValue = findViewById<TextView>(R.id.rangesValue)
@@ -131,7 +130,7 @@ class MainActivity : Activity() {
                         concurrency = 20
                     ).scan(candidates)
 
-                    val downloadCandidates = results.take(20)
+                    val downloadCandidates = results.take(10)
 
                     runOnUiThread {
                         tcpValue.text = results.size.toString()
@@ -177,32 +176,34 @@ class MainActivity : Activity() {
                         resultTable.removeAllViews()
                         resultTable.visibility = View.VISIBLE
 
-                        val header = TableRow(this@MainActivity)
-                        addResultCell(header, "IP", true)
-                        addResultCell(header, "丢包", true)
-                        addResultCell(header, "延迟", true)
-                        addResultCell(header, "速度", true)
+                        val header = createResultRow(
+                            "IP", "丢包", "延迟", "速度",
+                            header = true
+                        )
                         resultTable.addView(header)
 
+                        val divider = View(this@MainActivity)
+                        divider.setBackgroundColor(
+                            getThemeColor(R.attr.boxDivider)
+                        )
+                        resultTable.addView(
+                            divider,
+                            LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                dp(1)
+                            )
+                        )
+
                         successfulResults.forEach { (scanResult, downloadResult) ->
-                            val row = TableRow(this@MainActivity)
-                            addResultCell(row, scanResult.ip, false)
-                            addResultCell(
-                                row,
-                                String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
-                                false
+                            resultTable.addView(
+                                createResultRow(
+                                    scanResult.ip,
+                                    String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
+                                    "${scanResult.latencyMs?.toString() ?: "-"} ms",
+                                    String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
+                                    header = false
+                                )
                             )
-                            addResultCell(
-                                row,
-                                "${scanResult.latencyMs?.toString() ?: "-"} ms",
-                                false
-                            )
-                            addResultCell(
-                                row,
-                                String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
-                                false
-                            )
-                            resultTable.addView(row)
                         }
 
                         startButton.isEnabled = true
@@ -220,18 +221,41 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun addResultCell(row: TableRow, text: String, header: Boolean) {
-        val cell = TextView(this)
-        cell.text = text
-        cell.setTextColor(
-            getThemeColor(if (header) R.attr.boxTextPrimary else R.attr.boxTextSecondary)
-        )
-        cell.textSize = if (header) 13f else 12f
-        cell.gravity = Gravity.CENTER_VERTICAL
-        cell.setPadding(dp(6), dp(8), dp(6), dp(8))
-        cell.includeFontPadding = false
-        cell.maxLines = 1
-        row.addView(cell, TableRow.LayoutParams(0, TableRow.LayoutParams.WRAP_CONTENT, 1f))
+    private fun createResultRow(
+        ip: String,
+        loss: String,
+        latency: String,
+        speed: String,
+        header: Boolean
+    ): LinearLayout {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+
+        val values = listOf(ip, loss, latency, speed)
+        values.forEach { value ->
+            val cell = TextView(this)
+            cell.text = value
+            cell.setTextColor(
+                getThemeColor(
+                    if (header) R.attr.boxTextPrimary else R.attr.boxTextSecondary
+                )
+            )
+            cell.textSize = if (header) 13f else 12f
+            cell.gravity = Gravity.CENTER_VERTICAL
+            cell.setPadding(dp(4), dp(8), dp(4), dp(8))
+            cell.includeFontPadding = false
+            cell.maxLines = 1
+            row.addView(
+                cell,
+                LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+            )
+        }
+        return row
     }
 
     private fun getThemeColor(attr: Int): Int {
