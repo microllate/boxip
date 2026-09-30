@@ -2,7 +2,12 @@
 <resources>
     <style name="Theme.BoxIP" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:statusBarColor">@color/box_background</item>
+        <item name="android:navigationBarColor">@color/box_background</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:colorAccent">@color/box_accent</item>
+        <item name="android:windowBackground">@color/box_background</item>
     </style>
 </resources>
