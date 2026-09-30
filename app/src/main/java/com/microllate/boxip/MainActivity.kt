@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
 import android.net.ConnectivityManager
+import org.json.JSONArray
+import org.json.JSONObject
 import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.view.View
@@ -56,6 +58,15 @@ class MainActivity : Activity() {
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
 
         themeButton.text = themeLabel(currentThemeMode())
+        restoreLastResults(
+            statusText,
+            resultText,
+            resultTable,
+            rangesValue,
+            candidatesValue,
+            tcpValue,
+            downloadValue
+        )
         themeButton.setOnClickListener {
             val nextMode = when (currentThemeMode()) {
                 THEME_SYSTEM -> THEME_LIGHT
@@ -171,38 +182,14 @@ class MainActivity : Activity() {
                         resultText.visibility = if (successfulResults.isEmpty()) View.VISIBLE else View.GONE
                         resultText.text = "没有成功的下载测速结果。"
 
-                        resultTable.removeAllViews()
-                        resultTable.visibility = View.VISIBLE
-
-                        val header = createResultRow(
-                            "IP", "丢包", "延迟", "速度",
-                            header = true
+                        renderResults(resultTable, successfulResults)
+                        saveLastResults(
+                            ranges.ipv4.size,
+                            candidates.size,
+                            results.size,
+                            downloadResults.size,
+                            successfulResults
                         )
-                        resultTable.addView(header)
-
-                        val divider = View(this@MainActivity)
-                        divider.setBackgroundColor(
-                            getThemeColor(R.attr.boxDivider)
-                        )
-                        resultTable.addView(
-                            divider,
-                            LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT,
-                                dp(1)
-                            )
-                        )
-
-                        successfulResults.forEach { (scanResult, downloadResult) ->
-                            resultTable.addView(
-                                createResultRow(
-                                    scanResult.ip,
-                                    String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
-                                    "${scanResult.latencyMs?.toString() ?: "-"} ms",
-                                    String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
-                                    header = false
-                                )
-                            )
-                        }
 
                         startButton.isEnabled = true
                         themeButton.isEnabled = true
@@ -218,6 +205,142 @@ class MainActivity : Activity() {
             }
         }
     }
+
+    private fun renderResults(
+        resultTable: LinearLayout,
+        successfulResults: List<Pair<CfstScanResult, CfstDownloadResult>>
+    ) {
+        resultTable.removeAllViews()
+        resultTable.visibility = View.VISIBLE
+
+        resultTable.addView(
+            createResultRow("IP", "丢包", "延迟", "速度", header = true)
+        )
+
+        val divider = View(this)
+        divider.setBackgroundColor(getThemeColor(R.attr.boxDivider))
+        resultTable.addView(
+            divider,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(1)
+            )
+        )
+
+        successfulResults.forEach { (scanResult, downloadResult) ->
+            resultTable.addView(
+                createResultRow(
+                    scanResult.ip,
+                    String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
+                    (scanResult.latencyMs?.toString() ?: "-") + " ms",
+                    String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
+                    header = false
+                )
+            )
+        }
+    }
+
+    private fun saveLastResults(
+        ranges: Int,
+        candidates: Int,
+        tcp: Int,
+        downloads: Int,
+        results: List<Pair<CfstScanResult, CfstDownloadResult>>
+    ) {
+        val array = JSONArray()
+        results.forEach { (scanResult, downloadResult) ->
+            array.put(JSONObject().apply {
+                put("ip", scanResult.ip)
+                put("loss", scanResult.lossRate)
+                put("latency", scanResult.latencyMs ?: -1L)
+                put("speed", downloadResult.downloadSpeedMbps)
+            })
+        }
+
+        getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+            .edit()
+            .putInt("ranges", ranges)
+            .putInt("candidates", candidates)
+            .putInt("tcp", tcp)
+            .putInt("downloads", downloads)
+            .putString("results", array.toString())
+            .putLong("savedAt", System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun restoreLastResults(
+        statusText: TextView,
+        resultText: TextView,
+        resultTable: LinearLayout,
+        rangesValue: TextView,
+        candidatesValue: TextView,
+        tcpValue: TextView,
+        downloadValue: TextView
+    ) {
+        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        val raw = prefs.getString("results", null) ?: return
+
+        try {
+            val array = JSONArray(raw)
+            val restored = mutableListOf<RestoredResult>()
+
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+                restored += RestoredResult(
+                    ip = item.getString("ip"),
+                    loss = item.optDouble("loss", 0.0),
+                    latencyMs = item.optLong("latency", -1L),
+                    speed = item.optDouble("speed", 0.0)
+                )
+            }
+
+            rangesValue.text = prefs.getInt("ranges", 0).toString()
+            candidatesValue.text = prefs.getInt("candidates", 0).toString()
+            tcpValue.text = prefs.getInt("tcp", 0).toString()
+            downloadValue.text = prefs.getInt("downloads", restored.size).toString()
+
+            statusText.text = "已恢复上次测速结果"
+            resultText.visibility = if (restored.isEmpty()) View.VISIBLE else View.GONE
+            resultText.text = "没有成功的下载测速结果。"
+
+            resultTable.removeAllViews()
+            resultTable.visibility = View.VISIBLE
+            resultTable.addView(
+                createResultRow("IP", "丢包", "延迟", "速度", header = true)
+            )
+
+            val divider = View(this)
+            divider.setBackgroundColor(getThemeColor(R.attr.boxDivider))
+            resultTable.addView(
+                divider,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(1)
+                )
+            )
+
+            restored.forEach { item ->
+                resultTable.addView(
+                    createResultRow(
+                        item.ip,
+                        String.format(Locale.US, "%.0f%%", item.loss),
+                        if (item.latencyMs >= 0) item.latencyMs.toString() + " ms" else "-",
+                        String.format(Locale.US, "%.2f MB/s", item.speed),
+                        header = false
+                    )
+                )
+            }
+        } catch (_: Exception) {
+            // Ignore invalid old result data and keep the initial empty state.
+        }
+    }
+
+    private data class RestoredResult(
+        val ip: String,
+        val loss: Double,
+        val latencyMs: Long,
+        val speed: Double
+    )
 
     private fun createResultRow(
         ip: String,
