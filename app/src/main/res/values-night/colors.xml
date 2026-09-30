@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="box_background">#0E1117</color>
+    <color name="box_surface">#171B23</color>
+    <color name="box_surface_alt">#202631</color>
+    <color name="box_text_primary">#F2F4F7</color>
+    <color name="box_text_secondary">#AAB2BF</color>
+    <color name="box_text_muted">#778191</color>
+    <color name="box_accent">#60A5FA</color>
+    <color name="box_accent_dark">#93C5FD</color>
+    <color name="box_on_accent">#07111F</color>
+    <color name="box_divider">#2A313D</color>
+</resources>
