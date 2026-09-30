@@ -214,7 +214,7 @@ class MainActivity : Activity() {
         resultTable.visibility = View.VISIBLE
 
         resultTable.addView(
-            createResultRow("IP", "丢包", "延迟", "速度", header = true)
+            createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true)
         )
 
         val divider = View(this)
@@ -234,6 +234,7 @@ class MainActivity : Activity() {
                     String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
                     (scanResult.latencyMs?.toString() ?: "-") + " ms",
                     String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
+                    downloadResult.pop ?: "-",
                     header = false
                 )
             )
@@ -254,6 +255,7 @@ class MainActivity : Activity() {
                 put("loss", scanResult.lossRate)
                 put("latency", scanResult.latencyMs ?: -1L)
                 put("speed", downloadResult.downloadSpeedMbps)
+                put("pop", downloadResult.pop ?: "")
             })
         }
 
@@ -290,7 +292,8 @@ class MainActivity : Activity() {
                     ip = item.getString("ip"),
                     loss = item.optDouble("loss", 0.0),
                     latencyMs = item.optLong("latency", -1L),
-                    speed = item.optDouble("speed", 0.0)
+                    speed = item.optDouble("speed", 0.0),
+                    pop = item.optString("pop", "").ifEmpty { "-" }
                 )
             }
 
@@ -306,7 +309,7 @@ class MainActivity : Activity() {
             resultTable.removeAllViews()
             resultTable.visibility = View.VISIBLE
             resultTable.addView(
-                createResultRow("IP", "丢包", "延迟", "速度", header = true)
+                createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true)
             )
 
             val divider = View(this)
@@ -326,6 +329,7 @@ class MainActivity : Activity() {
                         String.format(Locale.US, "%.0f%%", item.loss),
                         if (item.latencyMs >= 0) item.latencyMs.toString() + " ms" else "-",
                         String.format(Locale.US, "%.2f MB/s", item.speed),
+                        item.pop,
                         header = false
                     )
                 )
@@ -339,7 +343,8 @@ class MainActivity : Activity() {
         val ip: String,
         val loss: Double,
         val latencyMs: Long,
-        val speed: Double
+        val speed: Double,
+        val pop: String
     )
 
     private fun createResultRow(
@@ -347,13 +352,14 @@ class MainActivity : Activity() {
         loss: String,
         latency: String,
         speed: String,
+        pop: String,
         header: Boolean
     ): LinearLayout {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
 
-        val values = listOf(ip, loss, latency, speed)
+        val values = listOf(ip, loss, latency, speed, pop)
         values.forEach { value ->
             val cell = TextView(this)
             cell.text = value
