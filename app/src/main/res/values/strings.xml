@@ -6,6 +6,6 @@
     <string name="host_hint">SNI / WS Host</string>
     <string name="default_host">life.mozzarella.top</string>
     <string name="path_hint">WS Path</string>
-    <string name="default_path">/micro</string>
+    <string name="default_path">/micro?ed=2560</string>
     <string name="uuid_hint">VLESS UUID</string>
 </resources>
