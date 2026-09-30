@@ -175,7 +175,7 @@ class VlessWsScanner(
 
     private fun readHttpStatus(input: BufferedInputStream): Int {
         val buffer = ByteArrayOutputStream()
-        while (buffer.size < 16 * 1024) {
+        while (buffer.size() < 16 * 1024) {
             val value = input.read()
             if (value < 0) break
             buffer.write(value)
