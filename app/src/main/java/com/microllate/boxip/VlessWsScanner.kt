@@ -6,7 +6,6 @@ import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.UUID
@@ -30,6 +29,11 @@ class VlessWsScanner(
     private val timeoutMs: Int = 5000,
     private val concurrency: Int = 8
 ) {
+    companion object {
+        private const val TEST_DESTINATION = "1.1.1.1"
+        private const val TEST_PORT = 443
+    }
+
     fun scan(
         ips: List<String>,
         host: String,
@@ -138,7 +142,9 @@ class VlessWsScanner(
                     return result(false, "WebSocket", "HTTP $wsStatus")
                 }
 
-                val vlessRequest = buildVlessRequest(uuid, 443, host)
+                // The destination is only the probe target behind the VLESS tunnel.
+                // It is not the Cloudflare server/edge address.
+                val vlessRequest = buildVlessRequest(uuid, TEST_PORT, TEST_DESTINATION)
                 output.write(buildClientWsFrame(vlessRequest))
                 output.flush()
 
@@ -169,7 +175,7 @@ class VlessWsScanner(
 
     private fun readHttpStatus(input: BufferedInputStream): Int {
         val buffer = ByteArrayOutputStream()
-        while (buffer.size() < 16 * 1024) {
+        while (buffer.size < 16 * 1024) {
             val value = input.read()
             if (value < 0) break
             buffer.write(value)
@@ -200,7 +206,7 @@ class VlessWsScanner(
         output.write((port ushr 8) and 0xFF)
         output.write(port and 0xFF)
 
-        val addressBytes = address.toByteArray(Charsets.UTF_8)
+        val addressBytes = address.toByteArray(Charsets.US_ASCII)
         output.write(2)
         output.write(addressBytes.size)
         output.write(addressBytes)
