@@ -148,31 +148,71 @@ class VlessWsScanner(
                 output.write(buildClientWsFrame(vlessRequest))
                 output.flush()
 
-                val frame = readWsFrame(input)
-                    ?: return result(false, "VLESS", "WebSocket 连接提前关闭")
+                var framesSeen = 0
+                var firstBinary: WsFrame? = null
+                var lastClose: WsFrame? = null
 
-                if (frame.opcode == 0x8) {
-                    return result(false, "VLESS", describeCloseFrame(frame.payload))
+                repeat(4) {
+                    val frame = readWsFrame(input)
+                        ?: return@repeat
+
+                    framesSeen++
+
+                    when (frame.opcode) {
+                        0x8 -> {
+                            lastClose = frame
+                            return@repeat
+                        }
+                        0x2 -> {
+                            if (firstBinary == null) {
+                                firstBinary = frame
+                            }
+                        }
+                    }
+
+                    if (firstBinary != null) {
+                        val payload = firstBinary!!.payload
+                        if (payload.size >= 2 && (payload[0].toInt() and 0xFF) == 1) {
+                            return result(
+                                true,
+                                "VLESS",
+                                "收到 VLESS 响应: frames=$framesSeen, payload=${hexPreview(payload)}"
+                            )
+                        }
+                    }
                 }
 
-                if (frame.opcode != 0x2 || frame.payload.size < 2) {
+                val binary = firstBinary
+                if (binary != null) {
+                    if (binary.payload.size < 2) {
+                        return result(
+                            false,
+                            "VLESS",
+                            "收到二进制帧但长度异常: frames=$framesSeen, payload=${hexPreview(binary.payload)}"
+                        )
+                    }
+
+                    val version = binary.payload[0].toInt() and 0xFF
                     return result(
                         false,
                         "VLESS",
-                        "未收到 VLESS 二进制响应: opcode=${frame.opcode}, payload=${hexPreview(frame.payload)}"
+                        "收到二进制帧但不是 VLESS 响应: version=$version, frames=$framesSeen, payload=${hexPreview(binary.payload)}"
                     )
                 }
 
-                val version = frame.payload[0].toInt() and 0xFF
-                if (version != 1) {
+                if (lastClose != null) {
                     return result(
                         false,
                         "VLESS",
-                        "VLESS 响应版本=$version, payload=${hexPreview(frame.payload)}"
+                        "服务器关闭 WebSocket: frames=$framesSeen, ${describeCloseFrame(lastClose!!.payload)}"
                     )
                 }
 
-                return result(true, "VLESS")
+                return result(
+                    false,
+                    "VLESS",
+                    "未收到 VLESS 二进制响应: frames=$framesSeen"
+                )
             }
         } catch (e: Exception) {
             return result(false, "连接", e.javaClass.simpleName + ": " + (e.message ?: ""))
