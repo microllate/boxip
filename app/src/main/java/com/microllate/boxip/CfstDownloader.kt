@@ -6,6 +6,7 @@ import java.io.BufferedOutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
+import java.util.Locale
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
@@ -14,7 +15,8 @@ import javax.net.ssl.SSLSocket
 data class CfstDownloadResult(
     val ip: String,
     val downloadSpeedMbps: Double,
-    val durationMs: Long
+    val durationMs: Long,
+    val pop: String?
 )
 
 class CfstDownloader(
@@ -97,7 +99,10 @@ class CfstDownloader(
                 return null
             }
 
-            val headerDone = readHeaders(input) ?: return null
+            val headers = readHeaders(input) ?: return null
+            val pop = headers["cf-ray"]
+                ?.substringAfterLast("-", "")
+                ?.takeIf { it.length == 3 }
 
             val startNs = System.nanoTime()
             val deadlineNs = startNs + timeoutMs * 1_000_000L
@@ -121,7 +126,8 @@ class CfstDownloader(
             CfstDownloadResult(
                 ip = ip,
                 downloadSpeedMbps = speedMbps,
-                durationMs = elapsedMs
+                durationMs = elapsedMs,
+                pop = pop?.uppercase(Locale.US)
             )
         } catch (_: Exception) {
             null
@@ -150,26 +156,32 @@ class CfstDownloader(
         return bytes.toByteArray().toString(Charsets.ISO_8859_1).trimEnd('\r', '\n')
     }
 
-    private fun readHeaders(input: BufferedInputStream): Boolean? {
-        var previous1 = -1
-        var previous2 = -1
-        var previous3 = -1
+    private fun readHeaders(input: BufferedInputStream): Map<String, String>? {
+        val headers = mutableMapOf<String, String>()
+        val line = ArrayList<Byte>()
 
         while (true) {
-            val value = input.read()
-            if (value < 0) return null
-
-            if (previous3 == '\r'.code &&
-                previous2 == '\n'.code &&
-                previous1 == '\r'.code &&
-                value == '\n'.code
-            ) {
-                return true
+            line.clear()
+            while (true) {
+                val value = input.read()
+                if (value < 0) return null
+                line.add(value.toByte())
+                if (value == '\n'.code) break
+                if (line.size >= 16 * 1024) return null
             }
 
-            previous3 = previous2
-            previous2 = previous1
-            previous1 = value
+            val text = line.toByteArray()
+                .toString(Charsets.ISO_8859_1)
+                .trimEnd('\r', '\n')
+
+            if (text.isEmpty()) return headers
+
+            val separator = text.indexOf(':')
+            if (separator > 0) {
+                val name = text.substring(0, separator).trim().lowercase(Locale.US)
+                val value = text.substring(separator + 1).trim()
+                headers[name] = value
+            }
         }
     }
 }
