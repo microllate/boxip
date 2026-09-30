@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BoxIP</string>
-    <string name="app_description">Cloudflare IP 优选工具</string>
+    <string name="app_description">轻量 CFST：Cloudflare IP 延迟 / 丢包测速</string>
     <string name="start_scan">开始测速</string>
-    <string name="host_hint">SNI / WS Host</string>
-    <string name="default_host">life.mozzarella.top</string>
-    <string name="path_hint">WS Path</string>
-    <string name="default_path">/micro&#63;ed=2560</string>
-    <string name="uuid_hint">VLESS UUID</string>
 </resources>
