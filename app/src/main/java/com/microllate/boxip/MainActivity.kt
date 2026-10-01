@@ -992,12 +992,13 @@ class MainActivity : Activity() {
                 )
             )
             cell.textSize = if (header) 13f else 12f
-            // Keep the metric columns centered inside their equal-width
-            // cells. Right alignment makes the large IP column look detached
-            // from TCP, while center alignment keeps all columns visually even.
-            cell.gravity = Gravity.CENTER
+            // Left-align every column. With IP sized to its content and
+            // the remaining columns sharing the available width equally,
+            // each column starts at a predictable position without large
+            // right-alignment gaps.
+            cell.gravity = Gravity.CENTER_VERTICAL
             cell.setPadding(
-                dp(2),
+                dp(4),
                 dp(8),
                 dp(2),
                 dp(8)
