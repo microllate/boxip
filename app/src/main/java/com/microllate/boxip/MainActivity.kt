@@ -992,15 +992,14 @@ class MainActivity : Activity() {
                 )
             )
             cell.textSize = if (header) 13f else 12f
-            cell.gravity = when {
-                index in 1..4 -> Gravity.CENTER_VERTICAL or Gravity.END
-                index == 5 -> Gravity.CENTER
-                else -> Gravity.CENTER_VERTICAL
-            }
+            // Keep the metric columns centered inside their equal-width
+            // cells. Right alignment makes the large IP column look detached
+            // from TCP, while center alignment keeps all columns visually even.
+            cell.gravity = Gravity.CENTER
             cell.setPadding(
-                dp(if (index in 1..4) 2 else 4),
+                dp(2),
                 dp(8),
-                dp(if (index in 1..4) 6 else 4),
+                dp(2),
                 dp(8)
             )
             cell.includeFontPadding = false
