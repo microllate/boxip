@@ -36,7 +36,7 @@ class VlessWsScanner(
 ) {
     companion object {
         private const val SING_BOX = "/data/adb/box/bin/sing-box"
-        private const val TEST_URL = "https://www.cloudflare.com/cdn-cgi/trace"
+        private const val TEST_PATH = "/cdn-cgi/trace"
         private const val BASE_PORT = 18480
     }
 
@@ -129,7 +129,7 @@ class VlessWsScanner(
                 InetSocketAddress("127.0.0.1", port)
             )
 
-            val connection = URL(TEST_URL).openConnection(proxy) as HttpsURLConnection
+            val testUrl = URL("https://" + host + TEST_PATH)\n            val connection = testUrl.openConnection(proxy) as HttpsURLConnection
             connection.connectTimeout = timeoutMs
             connection.readTimeout = timeoutMs
             connection.instanceFollowRedirects = false
