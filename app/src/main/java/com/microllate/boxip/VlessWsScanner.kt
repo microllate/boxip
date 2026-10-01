@@ -172,6 +172,8 @@ class VlessWsScanner(
             ssl.soTimeout = timeoutMs
             val params = ssl.sslParameters
             params.serverNames = listOf(javax.net.ssl.SNIHostName(host))
+            // We send raw HTTP/1.1 below; do not let TLS negotiate HTTP/2.
+            params.applicationProtocols = arrayOf("http/1.1")
             ssl.sslParameters = params
             ssl.startHandshake()
 
