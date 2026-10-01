@@ -168,7 +168,8 @@ class MainActivity : Activity() {
 
                     val downloadResults = CfstDownloader(
                         network = physicalNetwork,
-                        timeoutMs = 30_000,
+                        observationMs = 30_000,
+                        probeIntervalMs = 5_000,
                         connectTimeoutMs = 3_000
                     ).download(downloadCandidates.map { it.ip })
 
