@@ -131,19 +131,16 @@ class CfstSampler(
 
         saveHistory(history)
 
-        // Keep the fastest successful IP ever measured for this physical network.
+        // Remember the fastest successful IP from the latest completed run.
         val bestObservation = observations
             .filter { it.success && it.downloadSpeedMbps > 0.0 }
             .maxByOrNull { it.downloadSpeedMbps }
 
         if (bestObservation != null) {
-            val oldSpeed = prefs.getFloat(fastestSpeedKey, 0f).toDouble()
-            if (bestObservation.downloadSpeedMbps > oldSpeed) {
-                prefs.edit()
-                    .putString(fastestIpKey, bestObservation.ip)
-                    .putFloat(fastestSpeedKey, bestObservation.downloadSpeedMbps.toFloat())
-                    .apply()
-            }
+            prefs.edit()
+                .putString(fastestIpKey, bestObservation.ip)
+                .putFloat(fastestSpeedKey, bestObservation.downloadSpeedMbps.toFloat())
+                .apply()
         }
     }
 
