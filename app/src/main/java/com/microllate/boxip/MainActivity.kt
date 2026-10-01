@@ -605,9 +605,9 @@ class MainActivity : Activity() {
         results: List<DownloadDisplayResult>,
         realNodeCandidates: List<CfstDownloadResult>,
         realNodeResults: List<CfstDownloadResult>,
-        selectedIp: String?
-,
-        vlessResults: List<VlessWsResult>    ) {
+        selectedIp: String?,
+        vlessResults: List<VlessWsResult>
+    ) {
         val array = JSONArray()
         results.forEach { item ->
             val scanResult = item.scanResult
