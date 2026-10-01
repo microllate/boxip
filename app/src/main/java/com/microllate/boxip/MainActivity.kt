@@ -480,7 +480,16 @@ class MainActivity : Activity() {
             resultTable.addView(section)
 
             val realNodeByIp = realNodeResults.associateBy { it.ip }
-            val realNodeRows = realNodeCandidates.map { result ->
+            // Rank the third-stage table by the real-domain verification results,
+            // rather than by the public speed.cloudflare.com ranking used to pick candidates.
+            val sortedRealNodeCandidates = realNodeCandidates.sortedWith(
+                compareBy<CfstDownloadResult> { realNodeByIp[it.ip] == null }
+                    .thenByDescending { realNodeByIp[it.ip]?.stabilityPercent ?: 0.0 }
+                    .thenBy { realNodeByIp[it.ip]?.tlsHandshakeMs ?: Long.MAX_VALUE }
+                    .thenBy { realNodeByIp[it.ip]?.ttfbMs ?: Long.MAX_VALUE }
+                    .thenBy { realNodeByIp[it.ip]?.tcpConnectMs ?: Long.MAX_VALUE }
+            )
+            val realNodeRows = sortedRealNodeCandidates.map { result ->
                 val verified = realNodeByIp[result.ip]
                 listOf(
                     result.ip,
@@ -499,7 +508,7 @@ class MainActivity : Activity() {
                     columnWidths = realNodeWidths
                 )
             )
-            realNodeCandidates.forEach { result ->
+            sortedRealNodeCandidates.forEach { result ->
                 val verified = realNodeByIp[result.ip]
                 resultTable.addView(
                     createResultRow(
@@ -513,7 +522,7 @@ class MainActivity : Activity() {
                         columnWidths = realNodeWidths
                     )
                 )
-            }
+            }            }
         }
     }
 
