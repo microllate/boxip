@@ -25,12 +25,23 @@ class CfstSampler(
 ) {
     private val prefs = context.getSharedPreferences("boxip_learning", Context.MODE_PRIVATE)
     private val historyKey = "history_$networkKey"
+    private val fastestIpKey = "fastest_ip_$networkKey"
+    private val fastestSpeedKey = "fastest_speed_$networkKey"
 
     fun sample(cidrs: List<String>): List<String> {
         val candidates = ArrayList<String>()
         for (cidr in cidrs) addCidrSamples(cidr, candidates)
 
-        val uniqueCandidates = candidates.distinct()
+        val uniqueCandidates = candidates.distinct().toMutableList()
+
+        // Always retest the last fastest IP for this physical network.
+        // Add it before the size check so it is guaranteed to reach TCP scan.
+        getHistoricalFastestIp()?.let { fastestIp ->
+            if (fastestIp.startsWith("104.") && !uniqueCandidates.contains(fastestIp)) {
+                uniqueCandidates.add(fastestIp)
+            }
+        }
+
         if (uniqueCandidates.size <= config.maxSamples) return uniqueCandidates.shuffled()
 
         val candidateBySubnet = LinkedHashMap<String, String>()
@@ -49,8 +60,16 @@ class CfstSampler(
         )
         val selected = LinkedHashSet<String>()
 
+        // Keep the historical fastest IP even if its /24 would otherwise
+        // lose the learned/random selection.
+        getHistoricalFastestIp()?.let { fastestIp ->
+            if (uniqueCandidates.contains(fastestIp)) {
+                selected += fastestIp
+            }
+        }
+
         if (learnedCount > 0) {
-            val remaining = learned.toMutableList()
+            val remaining = learned.filterNot { selected.contains(it.second.first) }.toMutableList()
             repeat(learnedCount) {
                 val picked = weightedPick(remaining) ?: return@repeat
                 selected += picked.second.first
@@ -66,6 +85,10 @@ class CfstSampler(
         }
 
         return selected.toList()
+    }
+
+    fun getHistoricalFastestIp(): String? {
+        return prefs.getString(fastestIpKey, null)?.takeIf { it.isNotBlank() }
     }
 
     fun record(observations: List<CfstLearningObservation>) {
@@ -107,6 +130,21 @@ class CfstSampler(
         }
 
         saveHistory(history)
+
+        // Keep the fastest successful IP ever measured for this physical network.
+        val bestObservation = observations
+            .filter { it.success && it.downloadSpeedMbps > 0.0 }
+            .maxByOrNull { it.downloadSpeedMbps }
+
+        if (bestObservation != null) {
+            val oldSpeed = prefs.getFloat(fastestSpeedKey, 0f).toDouble()
+            if (bestObservation.downloadSpeedMbps > oldSpeed) {
+                prefs.edit()
+                    .putString(fastestIpKey, bestObservation.ip)
+                    .putFloat(fastestSpeedKey, bestObservation.downloadSpeedMbps.toFloat())
+                    .apply()
+            }
+        }
     }
 
     private fun weightedPick(
