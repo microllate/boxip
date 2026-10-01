@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.view.View
 import android.view.Gravity
 import android.graphics.Paint
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -399,7 +401,8 @@ class MainActivity : Activity() {
                             resultTable,
                             displayedResults,
                             realNodeCandidates,
-                            realNodeResults
+                            realNodeResults,
+                            selectedIp
                         )
                         saveLastResults(
                             ranges.ipv4.size,
@@ -438,7 +441,8 @@ class MainActivity : Activity() {
         resultTable: LinearLayout,
         displayedResults: List<DownloadDisplayResult>,
         realNodeCandidates: List<CfstDownloadResult> = emptyList(),
-        realNodeResults: List<CfstDownloadResult> = emptyList()
+        realNodeResults: List<CfstDownloadResult> = emptyList(),
+        selectedIp: String? = null
     ) {
         resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
@@ -484,7 +488,9 @@ class MainActivity : Activity() {
                     downloadResult?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                     downloadResult?.pop ?: "-",
                     header = false,
-                    columnWidths = columnWidths
+                    columnWidths = columnWidths,
+                    selectedIp = selectedIp,
+                    onSelect = { ip -> selectIp(ip, resultTable) }
                 )
             )
         }
@@ -538,7 +544,9 @@ class MainActivity : Activity() {
                         verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                         verified?.pop ?: "-",
                         header = false,
-                        columnWidths = realNodeWidths
+                        columnWidths = realNodeWidths,
+                        selectedIp = selectedIp,
+                        onSelect = { ip -> selectIp(ip, resultTable) }
                     )
                 )
             }
@@ -751,7 +759,9 @@ class MainActivity : Activity() {
                         if (item.success) String.format(Locale.US, "%.0f%%", item.stability) else "-",
                         if (item.success) item.pop else "-",
                         header = false,
-                        columnWidths = columnWidths
+                        columnWidths = columnWidths,
+                        selectedIp = restoredSelectedIp,
+                        onSelect = { ip -> selectIp(ip, resultTable) }
                     )
                 )
             }
@@ -760,7 +770,8 @@ class MainActivity : Activity() {
                 renderRestoredRealNodeResults(
                     resultTable,
                     restoredRealCandidates,
-                    restoredRealResults
+                    restoredRealResults,
+                    restoredSelectedIp
                 )
             }
         } catch (_: Exception) {
@@ -796,7 +807,8 @@ class MainActivity : Activity() {
     private fun renderRestoredRealNodeResults(
         resultTable: LinearLayout,
         candidates: List<RestoredDownloadResult>,
-        results: List<RestoredDownloadResult>
+        results: List<RestoredDownloadResult>,
+        selectedIp: String? = null
     ) {
         val section = TextView(this).apply {
             text = "真实节点域名验证 · life.mozzarella.top"
@@ -847,7 +859,9 @@ class MainActivity : Activity() {
                     verified?.let { String.format(Locale.US, "%.0f%%", it.stability) } ?: "-",
                     verified?.pop ?: "-",
                     header = false,
-                    columnWidths = widths
+                    columnWidths = widths,
+                    selectedIp = selectedIp,
+                    onSelect = { ip -> selectIp(ip, resultTable) }
                 )
             )
         }
@@ -885,11 +899,38 @@ class MainActivity : Activity() {
         stability: String,
         pop: String,
         header: Boolean,
-        columnWidths: IntArray
+        columnWidths: IntArray,
+        selectedIp: String? = null,
+        onSelect: ((String) -> Unit)? = null
     ): LinearLayout {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
+
+        if (!header && onSelect != null) {
+            val selector = TextView(this)
+            selector.tag = ip
+            selector.contentDescription = if (ip == selectedIp) {
+                "当前使用 $ip"
+            } else {
+                "选择 $ip"
+            }
+            selector.gravity = Gravity.CENTER
+            selector.setPadding(0, 0, 0, 0)
+            selector.background = createSelectorDrawable(ip == selectedIp)
+            selector.isClickable = true
+            selector.isFocusable = true
+            selector.setOnClickListener {
+                onSelect(ip)
+            }
+
+            row.addView(
+                selector,
+                LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+                    marginEnd = dp(4)
+                }
+            )
+        }
 
         val values = listOf(ip, loss, latency, speed, stability, pop)
         values.forEachIndexed { index, value ->
@@ -916,6 +957,64 @@ class MainActivity : Activity() {
         }
 
         return row
+    }
+
+    private fun createSelectorDrawable(selected: Boolean): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            if (selected) {
+                setColor(Color.rgb(46, 213, 95))
+                setStroke(dp(1), Color.rgb(46, 213, 95))
+            } else {
+                setColor(Color.TRANSPARENT)
+                setStroke(dp(1), getThemeColor(R.attr.boxDivider))
+            }
+        }
+    }
+
+    private fun selectIp(ip: String, resultTable: LinearLayout) {
+        BoxIpDnsServer.setCurrentIp(ip)
+        persistSelectedIp(ip)
+        updateSelectionIndicators(resultTable, ip)
+    }
+
+    private fun updateSelectionIndicators(resultTable: LinearLayout, selectedIp: String) {
+        for (index in 0 until resultTable.childCount) {
+            val child = resultTable.getChildAt(index)
+            if (child !is LinearLayout) continue
+
+            for (childIndex in 0 until child.childCount) {
+                val selector = child.getChildAt(childIndex)
+                val ip = selector.tag as? String ?: continue
+                selector.background = createSelectorDrawable(ip == selectedIp)
+                if (selector is TextView) {
+                    selector.contentDescription = if (ip == selectedIp) {
+                        "当前使用 $ip"
+                    } else {
+                        "选择 $ip"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun persistSelectedIp(ip: String) {
+        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        val snapshotRaw = prefs.getString(KEY_RESULTS_SNAPSHOT, null)
+
+        if (!snapshotRaw.isNullOrEmpty()) {
+            runCatching {
+                JSONObject(snapshotRaw).apply {
+                    put("selectedIp", ip)
+                    put("savedAt", System.currentTimeMillis())
+                }.also {
+                    editor.putString(KEY_RESULTS_SNAPSHOT, it.toString())
+                }
+            }
+        }
+
+        editor.putString("selectedIp", ip).commit()
     }
 
     /**
@@ -998,22 +1097,3 @@ class MainActivity : Activity() {
     private fun applySavedTheme() {
         when (currentThemeMode()) {
             THEME_LIGHT -> setTheme(R.style.Theme_BoxIP_Light)
-            THEME_DARK -> setTheme(R.style.Theme_BoxIP_Dark)
-            else -> {
-                val night = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-                setTheme(
-                    if (night == Configuration.UI_MODE_NIGHT_YES) {
-                        R.style.Theme_BoxIP_Dark
-                    } else {
-                        R.style.Theme_BoxIP_Light
-                    }
-                )
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        executor.shutdownNow()
-        super.onDestroy()
-    }
-}
