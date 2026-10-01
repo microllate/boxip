@@ -68,7 +68,7 @@ class MainActivity : Activity() {
                     val physicalInterface = connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
 
                     statusText.post {
-                        statusText.text = "第二阶段：真实 sing-box → Cloudflare → 服务器（复用单实例）..."
+                        statusText.text = "第三阶段：复用 VLESS + WS 连接，测稳定请求延迟..."
                     }
 
                     val vlessResults = VlessWsScanner(network = physicalNetwork).scan(
@@ -94,7 +94,7 @@ class MainActivity : Activity() {
                         append(tcpSuccessful.size)
                         append("\nVLESS + WS 成功：")
                         append(vlessResults.count { it.success })
-                        append("\n\n第二阶段结果（真实 VLESS + WS 请求耗时，不含 sing-box 启动）：\n")
+                        append("\n\n第三阶段结果（复用连接后的 3 次真实请求中位数）：\n")
 
                         if (successful.isEmpty()) {
                             append("没有建立成功的 VLESS + WS 连接\n\n失败阶段：\n")
