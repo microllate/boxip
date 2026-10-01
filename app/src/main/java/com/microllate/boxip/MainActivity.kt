@@ -1158,8 +1158,20 @@ class MainActivity : Activity() {
             ipContentWidth + dp(14 + 2 + 6 + 4)
         )
 
-        // Available width inside ScrollView/resultContainer.
-        val available = resources.displayMetrics.widthPixels - dp(68)
+        // Numeric columns must always have room for their unit suffix.
+        // Otherwise proportional shrinking can leave values such as "14 ms"
+        // rendered as just "14".
+        val metricPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = sp(12f)
+        }
+        widths[1] = maxOf(widths[1], metricPaint.measureText("999 ms").toInt() + dp(10))
+        widths[2] = maxOf(widths[2], metricPaint.measureText("9999 ms").toInt() + dp(10))
+        widths[3] = maxOf(widths[3], metricPaint.measureText("9999 ms").toInt() + dp(10))
+        widths[4] = maxOf(widths[4], metricPaint.measureText("100%").toInt() + dp(10))
+
+        // Use more of the physical screen: the root has 20dp side padding and
+        // the result ScrollView now keeps only 8dp horizontal padding.
+        val available = resources.displayMetrics.widthPixels - dp(56)
 
         if (widths.sum() < available) {
             // Spare width is useful mainly for readability of the metric columns.
