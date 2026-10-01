@@ -5,7 +5,6 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.net.SocketTimeoutException
 import java.net.URI
 import java.util.Locale
 import javax.net.ssl.HttpsURLConnection
@@ -26,10 +25,19 @@ data class CfstDownloadResult(
 
 class CfstDownloader(
     private val network: Network,
-    private val downloadUrl: String = "https://speed.cloudflare.com/__down?bytes=99999999",
-    private val timeoutMs: Int = 30_000,
-    private val connectTimeoutMs: Int = 3_000
+    private val downloadUrl: String = "https://speed.cloudflare.com/cdn-cgi/trace",
+    private val observationMs: Int = 30_000,
+    private val probeIntervalMs: Int = 5_000,
+    private val connectTimeoutMs: Int = 3_000,
+    private val probeTimeoutMs: Int = 3_000
 ) {
+    private data class ProbeResult(
+        val tcpConnectMs: Long,
+        val tlsHandshakeMs: Long,
+        val ttfbMs: Long,
+        val pop: String?
+    )
+
     fun download(ips: List<String>): List<CfstDownloadResult> {
         return ips.distinct().mapNotNull { ip ->
             test(ip)
@@ -47,6 +55,72 @@ class CfstDownloader(
         val port = if (uri.port > 0) uri.port else 443
         if (uri.scheme.lowercase() != "https" || port != 443) return null
 
+        val observationStartNs = System.nanoTime()
+        val deadlineNs = observationStartNs + observationMs * 1_000_000L
+        val intervalNs = probeIntervalMs.coerceAtLeast(1) * 1_000_000L
+
+        var nextProbeNs = observationStartNs
+        var attempts = 0
+        var successes = 0
+        var firstSuccess: ProbeResult? = null
+        var lastPop: String? = null
+
+        while (System.nanoTime() < deadlineNs) {
+            val waitNs = nextProbeNs - System.nanoTime()
+            if (waitNs > 0L) {
+                try {
+                    Thread.sleep(waitNs / 1_000_000L, (waitNs % 1_000_000L).toInt())
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+            }
+
+            if (System.nanoTime() >= deadlineNs && attempts > 0) break
+
+            attempts++
+            val probe = probe(ip, host, uri)
+            if (probe != null) {
+                successes++
+                if (firstSuccess == null) {
+                    firstSuccess = probe
+                }
+                lastPop = probe.pop ?: lastPop
+            }
+
+            nextProbeNs += intervalNs
+        }
+
+        val successfulProbe = firstSuccess ?: return null
+        val elapsedMs = ((System.nanoTime() - observationStartNs) / 1_000_000L)
+            .coerceAtLeast(1L)
+
+        val stabilityPercent = if (attempts == 0) {
+            0.0
+        } else {
+            successes.toDouble() / attempts.toDouble() * 100.0
+        }
+
+        return CfstDownloadResult(
+            ip = ip,
+            tcpConnectMs = successfulProbe.tcpConnectMs,
+            tlsHandshakeMs = successfulProbe.tlsHandshakeMs,
+            ttfbMs = successfulProbe.ttfbMs,
+            stabilityPercent = stabilityPercent,
+            // Kept for compatibility with the existing learning model.
+            // The new test intentionally does not use bulk download speed
+            // as the entry-quality metric.
+            downloadSpeedMbps = 0.0,
+            durationMs = elapsedMs,
+            pop = (lastPop ?: successfulProbe.pop)?.uppercase(Locale.US)
+        )
+    }
+
+    private fun probe(
+        ip: String,
+        host: String,
+        uri: URI
+    ): ProbeResult? {
         var rawSocket: Socket? = null
         var sslSocket: SSLSocket? = null
 
@@ -56,7 +130,7 @@ class CfstDownloader(
             rawSocket.connect(InetSocketAddress(ip, 443), connectTimeoutMs)
             val tcpConnectMs = elapsedMs(tcpStartNs)
 
-            rawSocket.soTimeout = 1_000
+            rawSocket.soTimeout = probeTimeoutMs
 
             val context = SSLContext.getInstance("TLS")
             context.init(null, null, null)
@@ -98,7 +172,7 @@ class CfstDownloader(
                 append("Host: ")
                 append(host)
                 append("\r\n")
-                append("User-Agent: BoxIP-CFST/0.2\r\n")
+                append("User-Agent: BoxIP-CFST/0.3\r\n")
                 append("Accept-Encoding: identity\r\n")
                 append("Connection: close\r\n")
                 append("\r\n")
@@ -107,8 +181,6 @@ class CfstDownloader(
             output.write(request.toByteArray(Charsets.US_ASCII))
             output.flush()
 
-            // TTFB is measured from the HTTP request being sent until the
-            // first response byte arrives from the Cloudflare edge.
             val ttfbStartNs = System.nanoTime()
             val statusLine = readHeader(input) ?: return null
             val ttfbMs = elapsedMs(ttfbStartNs)
@@ -124,63 +196,10 @@ class CfstDownloader(
                 ?.substringAfterLast("-", "")
                 ?.takeIf { it.length == 3 }
 
-            // Keep the connection open for the full observation window.
-            // Stability is the percentage of the 30-second window during
-            // which the connection remained usable. A clean early EOF or
-            // fatal socket error ends the observation early.
-            val observationStartNs = System.nanoTime()
-            val deadlineNs = observationStartNs + timeoutMs * 1_000_000L
-            val buffer = ByteArray(16 * 1024)
-            var totalBytes = 0L
-            var lastProgressNs = observationStartNs
-            var connectionEndedEarly = false
-
-            while (System.nanoTime() < deadlineNs) {
-                try {
-                    val read = input.read(buffer)
-                    if (read < 0) {
-                        connectionEndedEarly = true
-                        break
-                    }
-                    if (read > 0) {
-                        totalBytes += read
-                        lastProgressNs = System.nanoTime()
-                    }
-                } catch (_: SocketTimeoutException) {
-                    // A short read timeout does not mean the TCP connection
-                    // failed. Continue until the observation deadline.
-                } catch (_: Exception) {
-                    connectionEndedEarly = true
-                    break
-                }
-            }
-
-            val elapsedMs = elapsedMs(observationStartNs).coerceAtLeast(1L)
-            val targetMs = timeoutMs.toLong().coerceAtLeast(1L)
-            val stabilityPercent = if (connectionEndedEarly) {
-                (elapsedMs.toDouble() / targetMs * 100.0).coerceIn(0.0, 100.0)
-            } else {
-                100.0
-            }
-
-            // If the server temporarily produced no bytes, the connection
-            // can still be healthy. The 30-second window is the primary
-            // stability signal; lastProgressNs is intentionally retained
-            // only as a diagnostic point for future tuning.
-            @Suppress("UNUSED_VARIABLE")
-            val ignoredLastProgressNs = lastProgressNs
-
-            val speedMbps = totalBytes.toDouble() / 1_000_000.0 /
-                (elapsedMs.toDouble() / 1_000.0)
-
-            CfstDownloadResult(
-                ip = ip,
+            ProbeResult(
                 tcpConnectMs = tcpConnectMs,
                 tlsHandshakeMs = tlsHandshakeMs,
                 ttfbMs = ttfbMs,
-                stabilityPercent = stabilityPercent,
-                downloadSpeedMbps = speedMbps,
-                durationMs = elapsedMs,
                 pop = pop?.uppercase(Locale.US)
             )
         } catch (_: Exception) {
