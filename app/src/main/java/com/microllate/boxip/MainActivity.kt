@@ -322,7 +322,7 @@ class MainActivity : Activity() {
 
             resultTable.removeAllViews()
             resultTable.visibility = View.VISIBLE
-            val columnWeights = contentColumnWeights(
+            val columnWidths = contentColumnWidths(
                 restored.map { item ->
                     listOf(
                         item.ip,
