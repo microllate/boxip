@@ -214,8 +214,20 @@ class MainActivity : Activity() {
         resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
 
+        val columnWeights = contentColumnWeights(
+            successfulResults.map { (scanResult, downloadResult) ->
+                listOf(
+                    scanResult.ip,
+                    String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
+                    (scanResult.latencyMs?.toString() ?: "-") + " ms",
+                    String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
+                    downloadResult.pop ?: "-"
+                )
+            }
+        )
+
         resultTable.addView(
-            createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true)
+            createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true, columnWeights = columnWeights)
         )
 
         val divider = View(this)
@@ -236,7 +248,8 @@ class MainActivity : Activity() {
                     (scanResult.latencyMs?.toString() ?: "-") + " ms",
                     String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
                     downloadResult.pop ?: "-",
-                    header = false
+                    header = false,
+                    columnWeights = columnWeights
                 )
             )
         }
@@ -309,8 +322,20 @@ class MainActivity : Activity() {
 
             resultTable.removeAllViews()
             resultTable.visibility = View.VISIBLE
+            val columnWeights = contentColumnWeights(
+                restored.map { item ->
+                    listOf(
+                        item.ip,
+                        String.format(Locale.US, "%.0f%%", item.loss * 100),
+                        if (item.latencyMs >= 0) item.latencyMs.toString() + " ms" else "-",
+                        String.format(Locale.US, "%.2f MB/s", item.speed),
+                        item.pop
+                    )
+                }
+            )
+
             resultTable.addView(
-                createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true)
+                createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true, columnWeights = columnWeights)
             )
 
             val divider = View(this)
@@ -331,7 +356,8 @@ class MainActivity : Activity() {
                         if (item.latencyMs >= 0) item.latencyMs.toString() + " ms" else "-",
                         String.format(Locale.US, "%.2f MB/s", item.speed),
                         item.pop,
-                        header = false
+                        header = false,
+                        columnWeights = columnWeights
                     )
                 )
             }
@@ -354,15 +380,14 @@ class MainActivity : Activity() {
         latency: String,
         speed: String,
         pop: String,
-        header: Boolean
+        header: Boolean,
+        columnWeights: FloatArray
     ): LinearLayout {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
 
         val values = listOf(ip, loss, latency, speed, pop)
-        val columnWeights = contentColumnWeights()
-
         values.forEachIndexed { index, value ->
             val cell = TextView(this)
             cell.text = value
@@ -394,43 +419,9 @@ class MainActivity : Activity() {
      * Give each column a weight based on the widest text currently shown.
      * This keeps the columns aligned across rows while avoiding fixed 20% columns.
      */
-    private fun contentColumnWeights(): FloatArray {
-        val rows = mutableListOf(
-            listOf("IP", "丢包", "延迟", "速度", "区域")
-        )
-
-        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
-        val raw = prefs.getString("results", null)
-        if (!raw.isNullOrEmpty()) {
-            try {
-                val array = JSONArray(raw)
-                for (index in 0 until array.length()) {
-                    val item = array.getJSONObject(index)
-                    rows += listOf(
-                        item.optString("ip", ""),
-                        String.format(
-                            Locale.US,
-                            "%.0f%%",
-                            item.optDouble("loss", 0.0) * 100
-                        ),
-                        if (item.optLong("latency", -1L) >= 0) {
-                            item.optLong("latency", -1L).toString() + " ms"
-                        } else {
-                            "-"
-                        },
-                        String.format(
-                            Locale.US,
-                            "%.2f MB/s",
-                            item.optDouble("speed", 0.0)
-                        ),
-                        item.optString("pop", "").ifEmpty { "-" }
-                    )
-                }
-            } catch (_: Exception) {
-            }
-        }
-
+    private fun contentColumnWeights(rows: List<List<String>>): FloatArray {
         val widths = FloatArray(5)
+
         rows.forEach { row ->
             row.forEachIndexed { index, value ->
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
