@@ -10,8 +10,11 @@ import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.view.View
 import android.view.Gravity
+import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Color
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.LinearLayout
@@ -974,17 +977,71 @@ class MainActivity : Activity() {
         return row
     }
 
-    private fun createSelectorDrawable(selected: Boolean): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
+    private fun createSelectorDrawable(selected: Boolean): Drawable {
+        return IpSelectorDrawable(
+            selected = selected,
+            accentColor = Color.rgb(52, 211, 112),
+            idleColor = getThemeColor(R.attr.boxDivider)
+        )
+    }
+
+    private class IpSelectorDrawable(
+        private val selected: Boolean,
+        private val accentColor: Int,
+        private val idleColor: Int
+    ) : Drawable() {
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            isDither = true
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        override fun draw(canvas: Canvas) {
+            val cx = bounds.exactCenterX()
+            val cy = bounds.exactCenterY()
+            val radius = minOf(bounds.width(), bounds.height()) * 0.31f
+
             if (selected) {
-                setColor(Color.rgb(46, 213, 95))
-                setStroke(dp(1), Color.rgb(46, 213, 95))
+                // A restrained two-ring treatment: thin outer ring + compact core.
+                // It reads more like a premium status control than a filled circle.
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = radius * 0.16f
+                paint.color = accentColor
+                paint.alpha = 235
+                canvas.drawCircle(cx, cy, radius, paint)
+
+                paint.style = Paint.Style.FILL
+                paint.alpha = 255
+                canvas.drawCircle(cx, cy, radius * 0.42f, paint)
+
+                // Small highlight to give the selected state a subtle depth.
+                paint.color = Color.WHITE
+                paint.alpha = 70
+                canvas.drawCircle(
+                    cx - radius * 0.18f,
+                    cy - radius * 0.18f,
+                    radius * 0.11f,
+                    paint
+                )
             } else {
-                setColor(Color.TRANSPARENT)
-                setStroke(dp(1), getThemeColor(R.attr.boxDivider))
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = radius * 0.12f
+                paint.color = idleColor
+                paint.alpha = 190
+                canvas.drawCircle(cx, cy, radius, paint)
             }
         }
+
+        override fun setAlpha(alpha: Int) {
+            paint.alpha = alpha
+        }
+
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
+            paint.colorFilter = colorFilter
+        }
+
+        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
     }
 
     private fun selectIp(ip: String, resultTable: LinearLayout) {
