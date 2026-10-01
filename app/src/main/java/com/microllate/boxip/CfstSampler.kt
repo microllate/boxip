@@ -165,7 +165,6 @@ class CfstSampler(
         saveIpHistory(ipHistory)
 
         val history = loadHistory().toMutableMap()
-        val now = System.currentTimeMillis()
 
         for (observation in observations) {
             val subnet = subnet24(observation.ip)
