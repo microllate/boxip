@@ -943,9 +943,9 @@ class MainActivity : Activity() {
 
                 ipCell.addView(
                     selector,
-                    LinearLayout.LayoutParams(dp(16), dp(16)).apply {
+                    LinearLayout.LayoutParams(dp(10), dp(10)).apply {
                         marginStart = dp(2)
-                        marginEnd = dp(7)
+                        marginEnd = dp(6)
                     }
                 )
 
@@ -1004,8 +1004,8 @@ class MainActivity : Activity() {
     private fun createSelectorDrawable(selected: Boolean): Drawable {
         return IpSelectorDrawable(
             selected = selected,
-            accentColor = Color.rgb(52, 211, 112),
-            idleColor = getThemeColor(R.attr.boxDivider)
+            accentColor = Color.rgb(112, 181, 242),
+            idleColor = Color.rgb(105, 115, 130)
         )
     }
 
@@ -1024,7 +1024,7 @@ class MainActivity : Activity() {
         override fun draw(canvas: Canvas) {
             val cx = bounds.exactCenterX()
             val cy = bounds.exactCenterY()
-            val radius = minOf(bounds.width(), bounds.height()) * 0.31f
+            val radius = minOf(bounds.width(), bounds.height()) * 0.30f
 
             if (selected) {
                 // A restrained two-ring treatment: thin outer ring + compact core.
