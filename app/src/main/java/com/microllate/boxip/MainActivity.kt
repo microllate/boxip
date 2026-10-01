@@ -351,33 +351,47 @@ class MainActivity : Activity() {
                     )
 
                     val realNodeCandidates = regionResults.take(10)
-                    val realNodeResults = if (realNodeCandidates.isEmpty()) {
+
+                    // Keep the existing first/second-stage selection completely intact.
+                    // Only the final Top 10 are passed to the real VLESS + WS verifier.
+                    val physicalInterface =
+                        connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
+
+                    val vlessResults = if (realNodeCandidates.isEmpty()) {
                         emptyList()
                     } else {
                         runOnUiThread {
-                            statusText.text = "第三阶段 · 真实节点域名验证"
+                            statusText.text = "第三阶段 · 真实 VLESS + WS 验证"
                             resultText.visibility = View.VISIBLE
-                            resultText.text = "仅验证 Top ${realNodeCandidates.size} 个入口，每个 IP 进行 2 次轻量 TLS / TTFB 探测…"
+                            resultText.text =
+                                "仅验证 Top ${realNodeCandidates.size} 个入口：真实 sing-box → TLS → WS → VLESS…"
                         }
 
-                        CfstDownloader(
+                        VlessWsScanner(
                             network = physicalNetwork,
-                            downloadUrl = "https://life.mozzarella.top/cdn-cgi/trace",
-                            observationMs = 10_000,
-                            probeIntervalMs = 5_000,
-                            connectTimeoutMs = 3_000,
-                            probeTimeoutMs = 3_000,
-                            concurrency = 2
-                        ).download(realNodeCandidates.map { it.ip })
+                            timeoutMs = 8_000,
+                            concurrency = 4
+                        ).scan(
+                            ips = realNodeCandidates.map { it.ip },
+                            host = "life.mozzarella.top",
+                            path = "/micro?ed=2560",
+                            interfaceName = physicalInterface
+                        )
                     }
 
-                    // Apply the best real-domain result to BoxIP's local DNS.
-                    // The hostname/SNI stays life.mozzarella.top; only the resolved
-                    // Cloudflare edge IP changes.
-                    val selectedIp = realNodeResults
+                    // Keep the existing result table data for the first/second stages.
+                    // The final selected IP is decided only by a successful real
+                    // VLESS + WS response.
+                    val realNodeResults = realNodeCandidates.mapNotNull { candidate ->
+                        regionResults.firstOrNull { it.ip == candidate.ip }
+                    }
+
+                    val selectedIp = vlessResults
+                        .asSequence()
+                        .filter { it.success }
+                        .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
                         .firstOrNull()
                         ?.ip
-                        ?: regionResults.firstOrNull()?.ip
                     if (selectedIp != null) {
                         BoxIpDnsServer.setCurrentIp(selectedIp)
                     }
@@ -405,7 +419,8 @@ class MainActivity : Activity() {
                             displayedResults,
                             realNodeCandidates,
                             realNodeResults,
-                            selectedIp
+                            selectedIp,
+                            vlessResults
                         )
                         saveLastResults(
                             ranges.ipv4.size,
@@ -415,7 +430,8 @@ class MainActivity : Activity() {
                             displayedResults,
                             realNodeCandidates,
                             realNodeResults,
-                            selectedIp
+                            selectedIp,
+                            vlessResults
                         )
 
                         startButton.isEnabled = true
@@ -445,10 +461,32 @@ class MainActivity : Activity() {
         displayedResults: List<DownloadDisplayResult>,
         realNodeCandidates: List<CfstDownloadResult> = emptyList(),
         realNodeResults: List<CfstDownloadResult> = emptyList(),
-        selectedIp: String? = null
+        selectedIp: String? = null,
+        vlessResults: List<VlessWsResult> = emptyList()
     ) {
         resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
+
+        // The real-domain verification is the final decision layer, so show it
+        // first. Successful real VLESS+WS results are ranked by actual latency;
+        // failed VLESS+WS candidates are kept below them.
+        if (realNodeCandidates.isNotEmpty()) {
+            renderRealNodeSection(
+                resultTable,
+                realNodeCandidates,
+                realNodeResults,
+                selectedIp,
+                vlessResults
+            )
+        }
+
+        val genericSection = TextView(this).apply {
+            text = "通用测试"
+            setTextColor(getThemeColor(R.attr.boxTextPrimary))
+            textSize = 13f
+            setPadding(dp(4), dp(18), dp(4), dp(8))
+        }
+        resultTable.addView(genericSection)
 
         val columnWidths = contentColumnWidths(
             displayedResults.map { item ->
@@ -495,67 +533,116 @@ class MainActivity : Activity() {
                 )
             )
         }
+    }
 
-        if (realNodeCandidates.isNotEmpty()) {
-            val section = TextView(this).apply {
-                text = "真实节点域名验证 · life.mozzarella.top"
-                setTextColor(getThemeColor(R.attr.boxTextPrimary))
-                textSize = 13f
-                setPadding(dp(4), dp(18), dp(4), dp(8))
-            }
-            resultTable.addView(section)
+    private fun renderRealNodeSection(
+        resultTable: LinearLayout,
+        realNodeCandidates: List<CfstDownloadResult>,
+        realNodeResults: List<CfstDownloadResult>,
+        selectedIp: String?,
+        vlessResults: List<VlessWsResult>
+    ) {
+        val section = TextView(this).apply {
+            text = "真实节点域名验证 · life.mozzarella.top"
+            setTextColor(getThemeColor(R.attr.boxTextPrimary))
+            textSize = 13f
+            setPadding(dp(4), dp(18), dp(4), dp(8))
+        }
+        resultTable.addView(section)
 
-            val realNodeByIp = realNodeResults.associateBy { it.ip }
-            // Rank the third-stage table by the real-domain verification results,
-            // rather than by the public speed.cloudflare.com ranking used to pick candidates.
-            val sortedRealNodeCandidates = realNodeCandidates.sortedWith(
-                compareBy<CfstDownloadResult> { realNodeByIp[it.ip] == null }
-                    .thenByDescending { realNodeByIp[it.ip]?.stabilityPercent ?: 0.0 }
-                    .thenBy { realNodeByIp[it.ip]?.tlsHandshakeMs ?: Long.MAX_VALUE }
-                    .thenBy { realNodeByIp[it.ip]?.ttfbMs ?: Long.MAX_VALUE }
-                    .thenBy { realNodeByIp[it.ip]?.tcpConnectMs ?: Long.MAX_VALUE }
+        val realNodeByIp = realNodeResults.associateBy { it.ip }
+        val vlessByIp = vlessResults.associateBy { it.ip }
+
+        // Real VLESS+WS is the final gate. Successful entries come first and
+        // are ordered by the measured end-to-end latency. Failed entries follow
+        // and retain the second-stage quality ordering as a tie-breaker.
+        val sortedRealNodeCandidates = realNodeCandidates.sortedWith(
+            compareBy<CfstDownloadResult> { vlessByIp[it.ip]?.success != true }
+                .thenBy {
+                    if (vlessByIp[it.ip]?.success == true) {
+                        vlessByIp[it.ip]?.latencyMs ?: Long.MAX_VALUE
+                    } else {
+                        Long.MAX_VALUE
+                    }
+                }
+                .thenByDescending { realNodeByIp[it.ip]?.stabilityPercent ?: 0.0 }
+                .thenBy { realNodeByIp[it.ip]?.tlsHandshakeMs ?: Long.MAX_VALUE }
+                .thenBy { realNodeByIp[it.ip]?.ttfbMs ?: Long.MAX_VALUE }
+                .thenBy { realNodeByIp[it.ip]?.tcpConnectMs ?: Long.MAX_VALUE }
+        )
+
+        val realNodeRows = sortedRealNodeCandidates.map { result ->
+            val verified = realNodeByIp[result.ip]
+            listOf(
+                result.ip,
+                verified?.let { "${it.tcpConnectMs}" } ?: "失败",
+                verified?.let { "${it.tlsHandshakeMs}" } ?: "-",
+                verified?.let { "${it.ttfbMs}" } ?: "-",
+                verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
+                verified?.pop ?: "-"
             )
-            val realNodeRows = sortedRealNodeCandidates.map { result ->
-                val verified = realNodeByIp[result.ip]
-                listOf(
+        }
+        val realNodeWidths = contentColumnWidths(realNodeRows)
+        resultTable.addView(
+            createResultRow(
+                "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
+                header = true,
+                columnWidths = realNodeWidths,
+                showSelector = true
+            )
+        )
+
+        sortedRealNodeCandidates.forEach { result ->
+            val verified = realNodeByIp[result.ip]
+            resultTable.addView(
+                createResultRow(
                     result.ip,
                     verified?.let { "${it.tcpConnectMs}" } ?: "失败",
                     verified?.let { "${it.tlsHandshakeMs}" } ?: "-",
                     verified?.let { "${it.ttfbMs}" } ?: "-",
                     verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
-                    verified?.pop ?: "-"
-                )
-            }
-            val realNodeWidths = contentColumnWidths(realNodeRows)
-            resultTable.addView(
-                createResultRow(
-                    "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
-                    header = true,
+                    verified?.pop ?: "-",
+                    header = false,
                     columnWidths = realNodeWidths,
-                    showSelector = true
+                    selectedIp = selectedIp,
+                    showSelector = true,
+                    onSelect = if (vlessByIp[result.ip]?.success == true) {
+                        { ip -> selectIp(ip, resultTable) }
+                    } else {
+                        null
+                    }
                 )
             )
-            sortedRealNodeCandidates.forEach { result ->
-                val verified = realNodeByIp[result.ip]
-                resultTable.addView(
-                    createResultRow(
-                        result.ip,
-                        verified?.let { "${it.tcpConnectMs}" } ?: "失败",
-                        verified?.let { "${it.tlsHandshakeMs}" } ?: "-",
-                        verified?.let { "${it.ttfbMs}" } ?: "-",
-                        verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
-                        verified?.pop ?: "-",
-                        header = false,
-                        columnWidths = realNodeWidths,
-                        selectedIp = selectedIp,
-                        showSelector = true,
-                        onSelect = if (verified != null) {
-                            { ip -> selectIp(ip, resultTable) }
-                        } else {
-                            null
-                        }
-                    )
-                )
+        }
+
+        if (vlessResults.isNotEmpty()) {
+            val vlessSection = TextView(this).apply {
+                text = "真实 VLESS + WS 验证"
+                setTextColor(getThemeColor(R.attr.boxTextPrimary))
+                textSize = 13f
+                setPadding(dp(4), dp(18), dp(4), dp(8))
+            }
+            resultTable.addView(vlessSection)
+
+            val sortedVlessResults = vlessResults.sortedWith(
+                compareBy<VlessWsResult> { !it.success }
+                    .thenBy { it.latencyMs ?: Long.MAX_VALUE }
+            )
+
+            sortedVlessResults.forEach { result ->
+                val row = TextView(this).apply {
+                    text = if (result.success) {
+                        "✓ " + result.ip + "   成功   " +
+                            (result.latencyMs?.let { "${it} ms" } ?: "-")
+                    } else {
+                        "✕ " + result.ip + "   " + (result.error ?: "失败")
+                    }
+                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                    textSize = 12f
+                    setPadding(dp(4), dp(6), dp(4), dp(6))
+                    maxLines = 2
+                }
+                resultTable.addView(row)
             }
         }
     }
@@ -568,7 +655,8 @@ class MainActivity : Activity() {
         results: List<DownloadDisplayResult>,
         realNodeCandidates: List<CfstDownloadResult>,
         realNodeResults: List<CfstDownloadResult>,
-        selectedIp: String?
+        selectedIp: String?,
+        vlessResults: List<VlessWsResult>
     ) {
         val array = JSONArray()
         results.forEach { item ->
@@ -615,6 +703,15 @@ class MainActivity : Activity() {
             put("results", array)
             put("realNodeCandidates", JSONArray(serializeDownloadResults(realNodeCandidates)))
             put("realNodeResults", JSONArray(serializeDownloadResults(realNodeResults)))
+            put("vlessResults", JSONArray(vlessResults.map { r ->
+                JSONObject().apply {
+                    put("ip", r.ip)
+                    put("latencyMs", r.latencyMs ?: -1L)
+                    put("success", r.success)
+                    put("stage", r.stage)
+                    put("error", r.error ?: "")
+                }
+            }))
             put("selectedIp", selectedIp ?: "")
             put("savedAt", System.currentTimeMillis())
         }
@@ -633,6 +730,15 @@ class MainActivity : Activity() {
             .putString("results", array.toString())
             .putString("realNodeCandidates", serializeDownloadResults(realNodeCandidates))
             .putString("realNodeResults", serializeDownloadResults(realNodeResults))
+            .putString("vlessResults", JSONArray(vlessResults.map { r ->
+                JSONObject().apply {
+                    put("ip", r.ip)
+                    put("latencyMs", r.latencyMs ?: -1L)
+                    put("success", r.success)
+                    put("stage", r.stage)
+                    put("error", r.error ?: "")
+                }
+            }).toString())
             .putString("selectedIp", selectedIp ?: "")
             .putLong("savedAt", System.currentTimeMillis())
             .commit()
@@ -673,6 +779,23 @@ class MainActivity : Activity() {
                     prefs.getString("realNodeResults", null)
                 )
 
+            val restoredVlessResults = snapshot?.optJSONArray("vlessResults")?.let { array ->
+                buildList {
+                    for (index in 0 until array.length()) {
+                        val item = array.getJSONObject(index)
+                        add(
+                            RestoredVlessResult(
+                                ip = item.optString("ip", ""),
+                                latencyMs = item.optLong("latencyMs", -1L).takeIf { it >= 0L },
+                                success = item.optBoolean("success", false),
+                                stage = item.optString("stage", ""),
+                                error = item.optString("error", "").ifEmpty { null }
+                            )
+                        )
+                    }
+                }
+            } ?: parseRestoredVlessResults(prefs.getString("vlessResults", null))
+
             val savedSelectedIp = snapshot?.optString("selectedIp", "")
                 ?.takeIf { it.isNotEmpty() }
                 ?: prefs.getString("selectedIp", null).orEmpty()
@@ -683,6 +806,12 @@ class MainActivity : Activity() {
             // generic result.
             val restoredSelectedIp = savedSelectedIp
                 .takeIf { it.isNotEmpty() }
+                ?: restoredVlessResults
+                    .asSequence()
+                    .filter { it.success }
+                    .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
+                    .firstOrNull()
+                    ?.ip
                 ?: restoredRealResults.firstOrNull()?.ip
                 ?: run {
                     for (index in 0 until array.length()) {
@@ -729,6 +858,27 @@ class MainActivity : Activity() {
 
             resultTable.removeAllViews()
             resultTable.visibility = View.VISIBLE
+
+            // Show the real-domain verification first on restored results too,
+            // so the screen order is identical to a fresh scan.
+            if (restoredRealCandidates.isNotEmpty()) {
+                renderRestoredRealNodeResults(
+                    resultTable,
+                    restoredRealCandidates,
+                    restoredRealResults,
+                    restoredSelectedIp,
+                    restoredVlessResults
+                )
+            }
+
+            val genericSection = TextView(this).apply {
+                text = "通用测试"
+                setTextColor(getThemeColor(R.attr.boxTextPrimary))
+                textSize = 13f
+                setPadding(dp(4), dp(18), dp(4), dp(8))
+            }
+            resultTable.addView(genericSection)
+
             val columnWidths = contentColumnWidths(
                 restored.map { item ->
                     listOf(
@@ -770,15 +920,6 @@ class MainActivity : Activity() {
                     )
                 )
             }
-
-            if (restoredRealCandidates.isNotEmpty()) {
-                renderRestoredRealNodeResults(
-                    resultTable,
-                    restoredRealCandidates,
-                    restoredRealResults,
-                    restoredSelectedIp
-                )
-            }
         } catch (_: Exception) {
             // Ignore invalid old result data and keep the initial empty state.
         }
@@ -813,7 +954,8 @@ class MainActivity : Activity() {
         resultTable: LinearLayout,
         candidates: List<RestoredDownloadResult>,
         results: List<RestoredDownloadResult>,
-        selectedIp: String? = null
+        selectedIp: String? = null,
+        vlessResults: List<RestoredVlessResult> = emptyList()
     ) {
         val section = TextView(this).apply {
             text = "真实节点域名验证 · life.mozzarella.top"
@@ -824,8 +966,17 @@ class MainActivity : Activity() {
         resultTable.addView(section)
 
         val resultByIp = results.associateBy { it.ip }
+        val vlessByIp = vlessResults.associateBy { it.ip }
+
         val sortedCandidates = candidates.sortedWith(
-            compareBy<RestoredDownloadResult> { resultByIp[it.ip] == null }
+            compareBy<RestoredDownloadResult> { vlessByIp[it.ip]?.success != true }
+                .thenBy {
+                    if (vlessByIp[it.ip]?.success == true) {
+                        vlessByIp[it.ip]?.latencyMs ?: Long.MAX_VALUE
+                    } else {
+                        Long.MAX_VALUE
+                    }
+                }
                 .thenByDescending { resultByIp[it.ip]?.stability ?: 0.0 }
                 .thenBy { resultByIp[it.ip]?.tlsMs ?: Long.MAX_VALUE }
                 .thenBy { resultByIp[it.ip]?.ttfbMs ?: Long.MAX_VALUE }
@@ -868,7 +1019,7 @@ class MainActivity : Activity() {
                     columnWidths = widths,
                     selectedIp = selectedIp,
                     showSelector = true,
-                    onSelect = if (verified != null) {
+                    onSelect = if (vlessByIp[candidate.ip]?.success == true) {
                         { ip -> selectIp(ip, resultTable) }
                     } else {
                         null
@@ -876,6 +1027,56 @@ class MainActivity : Activity() {
                 )
             )
         }
+
+        if (vlessResults.isNotEmpty()) {
+            val vlessSection = TextView(this).apply {
+                text = "真实 VLESS + WS 验证"
+                setTextColor(getThemeColor(R.attr.boxTextPrimary))
+                textSize = 13f
+                setPadding(dp(4), dp(18), dp(4), dp(8))
+            }
+            resultTable.addView(vlessSection)
+
+            vlessResults
+                .sortedWith(compareBy<RestoredVlessResult> { !it.success }.thenBy { it.latencyMs ?: Long.MAX_VALUE })
+                .forEach { result ->
+                    val row = TextView(this).apply {
+                        text = if (result.success) {
+                            "✓ " + result.ip + "   成功   " +
+                                (result.latencyMs?.let { "${it} ms" } ?: "-")
+                        } else {
+                            "✕ " + result.ip + "   " + (result.error ?: "失败")
+                        }
+                        setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                        textSize = 12f
+                        setPadding(dp(4), dp(6), dp(4), dp(6))
+                        maxLines = 2
+                    }
+                    resultTable.addView(row)
+                }
+        }
+    }
+
+    private fun parseRestoredVlessResults(raw: String?): List<RestoredVlessResult> {
+        if (raw.isNullOrEmpty()) return emptyList()
+
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    add(
+                        RestoredVlessResult(
+                            ip = item.optString("ip", ""),
+                            latencyMs = item.optLong("latencyMs", -1L).takeIf { it >= 0L },
+                            success = item.optBoolean("success", false),
+                            stage = item.optString("stage", ""),
+                            error = item.optString("error", "").ifEmpty { null }
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
     }
 
     private data class RestoredDownloadResult(
@@ -887,6 +1088,14 @@ class MainActivity : Activity() {
         val speed: Double,
         val durationMs: Long,
         val pop: String?
+    )
+
+    private data class RestoredVlessResult(
+        val ip: String,
+        val latencyMs: Long?,
+        val success: Boolean,
+        val stage: String,
+        val error: String?
     )
 
     private data class RestoredResult(
