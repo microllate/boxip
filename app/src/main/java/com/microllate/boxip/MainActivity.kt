@@ -375,7 +375,6 @@ class MainActivity : Activity() {
                             ips = realNodeCandidates.map { it.ip },
                             host = "life.mozzarella.top",
                             path = "/micro?ed=2560",
-                            uuid = "REPLACE_WITH_UI_UUID",
                             interfaceName = physicalInterface
                         )
                     }
