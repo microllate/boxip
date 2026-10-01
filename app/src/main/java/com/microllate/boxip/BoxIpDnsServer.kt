@@ -32,8 +32,11 @@ object BoxIpDnsServer {
     @Volatile
     private var started = false
 
+    private const val REQUEST_THREADS = 4
+
     private var socket: DatagramSocket? = null
     private var serverExecutor: ExecutorService? = null
+    private var requestExecutor: ExecutorService? = null
 
     @Synchronized
     fun start() {
@@ -44,12 +47,15 @@ object BoxIpDnsServer {
 
             val newSocket = DatagramSocket(null).apply {
                 reuseAddress = false
+                receiveBufferSize = 64 * 1024
+                sendBufferSize = 64 * 1024
                 bind(InetSocketAddress(localAddress, PORT))
             }
 
             socket = newSocket
             started = true
 
+            requestExecutor = Executors.newFixedThreadPool(REQUEST_THREADS)
             serverExecutor = Executors.newSingleThreadExecutor()
             serverExecutor?.execute {
                 serve(newSocket)
@@ -87,6 +93,9 @@ object BoxIpDnsServer {
         serverExecutor?.shutdownNow()
         serverExecutor = null
 
+        requestExecutor?.shutdownNow()
+        requestExecutor = null
+
         Log.i(TAG, "DNS server stopped")
     }
 
@@ -96,30 +105,55 @@ object BoxIpDnsServer {
         while (started) {
             try {
                 val packet = DatagramPacket(buffer, buffer.size)
-
                 localSocket.receive(packet)
 
+                // Copy every request-owned value before handing the request to
+                // a worker. DatagramPacket is reused on the receive loop, so
+                // workers must never read address/port/data from that object
+                // after the next receive().
                 val request = packet.data.copyOfRange(
                     packet.offset,
                     packet.offset + packet.length
                 )
+                val clientAddress = packet.address
+                val clientPort = packet.port
 
-                val response = buildResponse(request) ?: continue
-
-                // DNS is intentionally processed synchronously. This service is
-                // a tiny loopback resolver, so preserving the exact request
-                // source port is more important than parallel request handling.
-                val reply = DatagramPacket(
-                    response,
-                    response.size,
-                    packet.address,
-                    packet.port
-                )
-
-                localSocket.send(reply)
+                requestExecutor?.execute {
+                    handleRequest(
+                        localSocket,
+                        clientAddress,
+                        clientPort,
+                        request
+                    )
+                }
             } catch (e: Exception) {
                 if (!started || localSocket.isClosed) break
                 Log.e(TAG, "DNS receive error", e)
+            }
+        }
+    }
+
+    private fun handleRequest(
+        localSocket: DatagramSocket,
+        clientAddress: InetAddress,
+        clientPort: Int,
+        request: ByteArray
+    ) {
+        try {
+            val response = buildResponse(request) ?: return
+            if (!started || localSocket.isClosed) return
+
+            val reply = DatagramPacket(
+                response,
+                response.size,
+                clientAddress,
+                clientPort
+            )
+
+            localSocket.send(reply)
+        } catch (e: Exception) {
+            if (started && !localSocket.isClosed) {
+                Log.e(TAG, "DNS response error", e)
             }
         }
     }
