@@ -253,7 +253,10 @@
         android:layout_weight="1"
         android:background="@drawable/bg_surface"
         android:fillViewport="true"
-        android:padding="14dp">
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
 
         <LinearLayout
             android:id="@+id/resultContainer"
