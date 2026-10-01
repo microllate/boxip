@@ -7,6 +7,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 import java.util.Locale
+import kotlin.math.roundToLong
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
@@ -78,7 +79,7 @@ class CfstDownloader(
         var nextProbeNs = observationStartNs
         var attempts = 0
         var successes = 0
-        var firstSuccess: ProbeResult? = null
+        val successfulProbes = mutableListOf<ProbeResult>()
         var lastPop: String? = null
 
         while (System.nanoTime() < deadlineNs) {
@@ -98,16 +99,19 @@ class CfstDownloader(
             val probe = probe(ip, host, uri)
             if (probe != null) {
                 successes++
-                if (firstSuccess == null) {
-                    firstSuccess = probe
-                }
+                successfulProbes += probe
                 lastPop = probe.pop ?: lastPop
             }
 
             nextProbeNs += intervalNs
         }
 
-        val successfulProbe = firstSuccess ?: return null
+        if (successfulProbes.isEmpty()) return null
+
+        val avgTcpConnectMs = successfulProbes.map { it.tcpConnectMs }.average().roundToLong()
+        val avgTlsHandshakeMs = successfulProbes.map { it.tlsHandshakeMs }.average().roundToLong()
+        val avgTtfbMs = successfulProbes.map { it.ttfbMs }.average().roundToLong()
+
         val elapsedMs = ((System.nanoTime() - observationStartNs) / 1_000_000L)
             .coerceAtLeast(1L)
 
@@ -119,9 +123,9 @@ class CfstDownloader(
 
         return CfstDownloadResult(
             ip = ip,
-            tcpConnectMs = successfulProbe.tcpConnectMs,
-            tlsHandshakeMs = successfulProbe.tlsHandshakeMs,
-            ttfbMs = successfulProbe.ttfbMs,
+            tcpConnectMs = avgTcpConnectMs,
+            tlsHandshakeMs = avgTlsHandshakeMs,
+            ttfbMs = avgTtfbMs,
             stabilityPercent = stabilityPercent,
             // Kept for compatibility with the existing learning model.
             // The new test intentionally does not use bulk download speed
