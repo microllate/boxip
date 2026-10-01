@@ -405,7 +405,10 @@ class MainActivity : Activity() {
                             candidates.size,
                             results.size,
                             downloadResults.size,
-                            displayedResults
+                            displayedResults,
+                            realNodeCandidates,
+                            realNodeResults,
+                            selectedIp
                         )
 
                         startButton.isEnabled = true
@@ -546,7 +549,10 @@ class MainActivity : Activity() {
         candidates: Int,
         tcp: Int,
         downloads: Int,
-        results: List<DownloadDisplayResult>
+        results: List<DownloadDisplayResult>,
+        realNodeCandidates: List<CfstDownloadResult>,
+        realNodeResults: List<CfstDownloadResult>,
+        selectedIp: String?
     ) {
         val array = JSONArray()
         results.forEach { item ->
@@ -562,8 +568,26 @@ class MainActivity : Activity() {
                 put("ttfbMs", downloadResult?.ttfbMs ?: -1L)
                 put("stability", downloadResult?.stabilityPercent ?: 0.0)
                 put("speed", downloadResult?.downloadSpeedMbps ?: 0.0)
+                put("durationMs", downloadResult?.durationMs ?: -1L)
                 put("pop", downloadResult?.pop ?: "")
             })
+        }
+
+        fun serializeDownloadResults(items: List<CfstDownloadResult>): String {
+            val resultArray = JSONArray()
+            items.forEach { result ->
+                resultArray.put(JSONObject().apply {
+                    put("ip", result.ip)
+                    put("tcpMs", result.tcpConnectMs)
+                    put("tlsMs", result.tlsHandshakeMs)
+                    put("ttfbMs", result.ttfbMs)
+                    put("stability", result.stabilityPercent)
+                    put("speed", result.downloadSpeedMbps)
+                    put("durationMs", result.durationMs)
+                    put("pop", result.pop ?: "")
+                })
+            }
+            return resultArray.toString()
         }
 
         getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
@@ -573,6 +597,9 @@ class MainActivity : Activity() {
             .putInt("tcp", tcp)
             .putInt("downloads", downloads)
             .putString("results", array.toString())
+            .putString("realNodeCandidates", serializeDownloadResults(realNodeCandidates))
+            .putString("realNodeResults", serializeDownloadResults(realNodeResults))
+            .putString("selectedIp", selectedIp ?: "")
             .putLong("savedAt", System.currentTimeMillis())
             .apply()
     }
@@ -592,6 +619,18 @@ class MainActivity : Activity() {
         try {
             val array = JSONArray(raw)
             val restored = mutableListOf<RestoredResult>()
+
+            val restoredRealCandidates = parseRestoredDownloadResults(
+                prefs.getString("realNodeCandidates", null)
+            )
+            val restoredRealResults = parseRestoredDownloadResults(
+                prefs.getString("realNodeResults", null)
+            )
+
+            val savedSelectedIp = prefs.getString("selectedIp", null).orEmpty()
+            if (savedSelectedIp.isNotEmpty()) {
+                BoxIpDnsServer.setCurrentIp(savedSelectedIp)
+            }
 
             for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
@@ -661,10 +700,114 @@ class MainActivity : Activity() {
                     )
                 )
             }
+
+            if (restoredRealCandidates.isNotEmpty()) {
+                renderRestoredRealNodeResults(
+                    resultTable,
+                    restoredRealCandidates,
+                    restoredRealResults
+                )
+            }
         } catch (_: Exception) {
             // Ignore invalid old result data and keep the initial empty state.
         }
     }
+
+    private fun parseRestoredDownloadResults(raw: String?): List<RestoredDownloadResult> {
+        if (raw.isNullOrEmpty()) return emptyList()
+
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    add(
+                        RestoredDownloadResult(
+                            ip = item.getString("ip"),
+                            tcpMs = item.optLong("tcpMs", -1L),
+                            tlsMs = item.optLong("tlsMs", -1L),
+                            ttfbMs = item.optLong("ttfbMs", -1L),
+                            stability = item.optDouble("stability", 0.0),
+                            speed = item.optDouble("speed", 0.0),
+                            durationMs = item.optLong("durationMs", -1L),
+                            pop = item.optString("pop", "").ifEmpty { null }
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun renderRestoredRealNodeResults(
+        resultTable: LinearLayout,
+        candidates: List<RestoredDownloadResult>,
+        results: List<RestoredDownloadResult>
+    ) {
+        val section = TextView(this).apply {
+            text = "真实节点域名验证 · life.mozzarella.top"
+            setTextColor(getThemeColor(R.attr.boxTextPrimary))
+            textSize = 13f
+            setPadding(dp(4), dp(18), dp(4), dp(8))
+        }
+        resultTable.addView(section)
+
+        val resultByIp = results.associateBy { it.ip }
+        val sortedCandidates = candidates.sortedWith(
+            compareBy<RestoredDownloadResult> { resultByIp[it.ip] == null }
+                .thenByDescending { resultByIp[it.ip]?.stability ?: 0.0 }
+                .thenBy { resultByIp[it.ip]?.tlsMs ?: Long.MAX_VALUE }
+                .thenBy { resultByIp[it.ip]?.ttfbMs ?: Long.MAX_VALUE }
+                .thenBy { resultByIp[it.ip]?.tcpMs ?: Long.MAX_VALUE }
+        )
+
+        val rows = sortedCandidates.map { candidate ->
+            val verified = resultByIp[candidate.ip]
+            listOf(
+                candidate.ip,
+                verified?.let { "${it.tcpMs} ms" } ?: "失败",
+                verified?.let { "${it.tlsMs} ms" } ?: "-",
+                verified?.let { "${it.ttfbMs} ms" } ?: "-",
+                verified?.let { String.format(Locale.US, "%.0f%%", it.stability) } ?: "-",
+                verified?.pop ?: "-"
+            )
+        }
+
+        val widths = contentColumnWidths(rows)
+        resultTable.addView(
+            createResultRow(
+                "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
+                header = true,
+                columnWidths = widths
+            )
+        )
+
+        sortedCandidates.forEach { candidate ->
+            val verified = resultByIp[candidate.ip]
+            resultTable.addView(
+                createResultRow(
+                    candidate.ip,
+                    verified?.let { "${it.tcpMs} ms" } ?: "失败",
+                    verified?.let { "${it.tlsMs} ms" } ?: "-",
+                    verified?.let { "${it.ttfbMs} ms" } ?: "-",
+                    verified?.let { String.format(Locale.US, "%.0f%%", it.stability) } ?: "-",
+                    verified?.pop ?: "-",
+                    header = false,
+                    columnWidths = widths
+                )
+            )
+        }
+    }
+
+    private data class RestoredDownloadResult(
+        val ip: String,
+        val tcpMs: Long,
+        val tlsMs: Long,
+        val ttfbMs: Long,
+        val stability: Double,
+        val speed: Double,
+        val durationMs: Long,
+        val pop: String?
+    )
 
     private data class RestoredResult(
         val ip: String,
