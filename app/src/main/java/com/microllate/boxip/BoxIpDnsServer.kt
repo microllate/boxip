@@ -1,79 +1,57 @@
 package com.microllate.boxip
 
+import android.content.Context
 import android.util.Log
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
-import java.net.InetSocketAddress
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.io.File
 
 /**
- * Local DNS server used by sing-box.
+ * Publishes BoxIP's selected Cloudflare IP as a sing-box hosts file.
  *
- * 127.0.0.1:1053
+ * BoxIP no longer implements a local UDP DNS server. sing-box owns DNS
+ * request concurrency, caching, packet parsing and response delivery.
  *
- * life.mozzarella.top -> current Cloudflare IP
+ * The generated file contains:
+ *   <current-ip> life.mozzarella.top
  *
- * This server does not modify Android system DNS.
+ * Configure sing-box once with a hosts DNS server pointing at this file.
  */
 object BoxIpDnsServer {
 
     private const val TAG = "BoxIpDnsServer"
-
     private const val HOST = "life.mozzarella.top"
-    private const val ADDRESS = "127.0.0.1"
-    private const val PORT = 1053
-    private const val TTL_SECONDS = 5
+    private const val FILE_NAME = "boxip.hosts"
 
     @Volatile
     private var currentIp = ""
 
     @Volatile
-    private var started = false
-
-    private const val REQUEST_THREADS = 4
-
-    private var socket: DatagramSocket? = null
-    private var serverExecutor: ExecutorService? = null
-    private var requestExecutor: ExecutorService? = null
+    private var hostsFile: File? = null
 
     @Synchronized
-    fun start() {
-        if (started) return
+    fun start(context: Context) {
+        val file = File(context.filesDir, FILE_NAME)
+        hostsFile = file
 
         try {
-            val localAddress = InetAddress.getByName(ADDRESS)
-
-            val newSocket = DatagramSocket(null).apply {
-                reuseAddress = false
-                receiveBufferSize = 64 * 1024
-                sendBufferSize = 64 * 1024
-                bind(InetSocketAddress(localAddress, PORT))
-            }
-
-            socket = newSocket
-            started = true
-
-            requestExecutor = Executors.newFixedThreadPool(REQUEST_THREADS)
-            serverExecutor = Executors.newSingleThreadExecutor()
-            serverExecutor?.execute {
-                serve(newSocket)
-            }
-
-            Log.i(TAG, "DNS server started: $ADDRESS:$PORT")
+            file.parentFile?.mkdirs()
+            publish(file)
+            Log.i(TAG, "sing-box hosts file ready: ${file.absolutePath}")
         } catch (e: Exception) {
-            started = false
-            socket = null
-
-            Log.e(TAG, "Failed to start DNS server", e)
+            Log.e(TAG, "Failed to initialize hosts file", e)
         }
     }
 
     fun setCurrentIp(ip: String) {
-        if (isValidIpv4(ip)) {
-            currentIp = ip
-            Log.d(TAG, "Current IP changed: $ip")
+        if (!isValidIpv4(ip)) return
+
+        currentIp = ip
+
+        val file = hostsFile ?: return
+        try {
+            publish(file)
+            Log.d(TAG, "Current IP published to hosts: $ip")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to publish current IP: $ip", e)
         }
     }
 
@@ -81,202 +59,35 @@ object BoxIpDnsServer {
 
     @Synchronized
     fun stop() {
-        started = false
-
-        try {
-            socket?.close()
-        } catch (_: Exception) {
-        }
-
-        socket = null
-
-        serverExecutor?.shutdownNow()
-        serverExecutor = null
-
-        requestExecutor?.shutdownNow()
-        requestExecutor = null
-
-        Log.i(TAG, "DNS server stopped")
+        // The hosts file intentionally remains in place. sing-box can keep
+        // reading the last known-good entry even if the UI activity is gone.
+        hostsFile = null
     }
 
-    private fun serve(localSocket: DatagramSocket) {
-        val buffer = ByteArray(1500)
-
-        while (started) {
-            try {
-                val packet = DatagramPacket(buffer, buffer.size)
-                localSocket.receive(packet)
-
-                // Copy every request-owned value before handing the request to
-                // a worker. DatagramPacket is reused on the receive loop, so
-                // workers must never read address/port/data from that object
-                // after the next receive().
-                val request = packet.data.copyOfRange(
-                    packet.offset,
-                    packet.offset + packet.length
-                )
-                val clientAddress = packet.address
-                val clientPort = packet.port
-
-                requestExecutor?.execute {
-                    handleRequest(
-                        localSocket,
-                        clientAddress,
-                        clientPort,
-                        request
-                    )
-                }
-            } catch (e: Exception) {
-                if (!started || localSocket.isClosed) break
-                Log.e(TAG, "DNS receive error", e)
-            }
-        }
-    }
-
-    private fun handleRequest(
-        localSocket: DatagramSocket,
-        clientAddress: InetAddress,
-        clientPort: Int,
-        request: ByteArray
-    ) {
-        try {
-            val response = buildResponse(request) ?: return
-            if (!started || localSocket.isClosed) return
-
-            val reply = DatagramPacket(
-                response,
-                response.size,
-                clientAddress,
-                clientPort
-            )
-
-            localSocket.send(reply)
-        } catch (e: Exception) {
-            if (started && !localSocket.isClosed) {
-                Log.e(TAG, "DNS response error", e)
-            }
-        }
-    }
-
-    private fun buildResponse(data: ByteArray): ByteArray? {
-        if (data.size < 12) return null
-
-        val idHigh = data[0].toInt() and 0xff
-        val idLow = data[1].toInt() and 0xff
-
-        val requestFlags =
-            ((data[2].toInt() and 0xff) shl 8) or
-                (data[3].toInt() and 0xff)
-
-        val questionCount =
-            ((data[4].toInt() and 0xff) shl 8) or
-                (data[5].toInt() and 0xff)
-
-        if (questionCount < 1) return null
-
-        var position = 12
-        val labels = mutableListOf<String>()
-
-        while (position < data.size) {
-            val labelLength = data[position].toInt() and 0xff
-            position++
-
-            if (labelLength == 0) break
-            if ((labelLength and 0xC0) != 0) return null
-            if (labelLength > 63 || position + labelLength > data.size) {
-                return null
-            }
-
-            labels += String(
-                data,
-                position,
-                labelLength,
-                Charsets.US_ASCII
-            )
-            position += labelLength
+    private fun publish(file: File) {
+        val ip = currentIp
+        if (!isValidIpv4(ip)) {
+            return
         }
 
-        if (position + 4 > data.size) return null
+        val parent = file.parentFile ?: return
+        parent.mkdirs()
 
-        val qtype =
-            ((data[position].toInt() and 0xff) shl 8) or
-                (data[position + 1].toInt() and 0xff)
-
-        val qclass =
-            ((data[position + 2].toInt() and 0xff) shl 8) or
-                (data[position + 3].toInt() and 0xff)
-
-        position += 4
-
-        val queryName = labels.joinToString(".").lowercase()
-        val question = data.copyOfRange(12, position)
-
-        if (queryName != HOST || qclass != 1 || qtype != 1) {
-            return buildNoAnswerResponse(
-                idHigh,
-                idLow,
-                requestFlags,
-                question
-            )
-        }
-
-        val ipBytes = ipv4ToBytes(currentIp) ?: return null
-
-        val answer = byteArrayOf(
-            0xC0.toByte(), 0x0C.toByte(),
-            0x00, 0x01,
-            0x00, 0x01,
-            ((TTL_SECONDS ushr 24) and 0xff).toByte(),
-            ((TTL_SECONDS ushr 16) and 0xff).toByte(),
-            ((TTL_SECONDS ushr 8) and 0xff).toByte(),
-            (TTL_SECONDS and 0xff).toByte(),
-            0x00, 0x04,
-            ipBytes[0],
-            ipBytes[1],
-            ipBytes[2],
-            ipBytes[3]
+        // Write a complete temporary file first, then atomically replace the
+        // published file. sing-box must never observe a partially written line.
+        val temp = File(parent, "${file.name}.tmp")
+        temp.writeText(
+            "# BoxIP managed file - do not edit manually\n" +
+                "$ip $HOST\n",
+            Charsets.US_ASCII
         )
 
-        val responseFlags =
-            0x8000 or
-                (requestFlags and 0x7800) or
-                (requestFlags and 0x0100) or
-                0x0080
-
-        return byteArrayOf(
-            idHigh.toByte(),
-            idLow.toByte(),
-            ((responseFlags ushr 8) and 0xff).toByte(),
-            (responseFlags and 0xff).toByte(),
-            0x00, 0x01,
-            0x00, 0x01,
-            0x00, 0x00,
-            0x00, 0x00
-        ) + question + answer
-    }
-
-    private fun buildNoAnswerResponse(
-        idHigh: Int,
-        idLow: Int,
-        requestFlags: Int,
-        question: ByteArray
-    ): ByteArray {
-        val responseFlags =
-            0x8000 or
-                (requestFlags and 0x7800) or
-                (requestFlags and 0x0100) or
-                0x0080
-
-        return byteArrayOf(
-            idHigh.toByte(),
-            idLow.toByte(),
-            ((responseFlags ushr 8) and 0xff).toByte(),
-            (responseFlags and 0xff).toByte(),
-            0x00, 0x01,
-            0x00, 0x00,
-            0x00, 0x00,
-            0x00, 0x00
-        ) + question
+        if (!temp.renameTo(file)) {
+            file.delete()
+            if (!temp.renameTo(file)) {
+                throw IllegalStateException("Unable to replace hosts file")
+            }
+        }
     }
 
     private fun ipv4ToBytes(ip: String): ByteArray? {
