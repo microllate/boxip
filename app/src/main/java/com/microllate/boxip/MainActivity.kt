@@ -488,13 +488,7 @@ class MainActivity : Activity() {
                     downloadResult?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                     downloadResult?.pop ?: "-",
                     header = false,
-                    columnWidths = columnWidths,
-                    selectedIp = selectedIp,
-                    onSelect = if (downloadResult != null) {
-                        { ip -> selectIp(ip, resultTable) }
-                    } else {
-                        null
-                    }
+                    columnWidths = columnWidths
                 )
             )
         }
@@ -529,12 +523,13 @@ class MainActivity : Activity() {
                     verified?.pop ?: "-"
                 )
             }
-            val realNodeWidths = contentColumnWidths(realNodeRows)
+            val realNodeWidths = contentColumnWidths(realNodeRows, includeSelector = true)
             resultTable.addView(
                 createResultRow(
                     "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
                     header = true,
-                    columnWidths = realNodeWidths
+                    columnWidths = realNodeWidths,
+                    showSelector = true
                 )
             )
             sortedRealNodeCandidates.forEach { result ->
@@ -550,7 +545,12 @@ class MainActivity : Activity() {
                         header = false,
                         columnWidths = realNodeWidths,
                         selectedIp = selectedIp,
-                        onSelect = { ip -> selectIp(ip, resultTable) }
+                        showSelector = true,
+                        onSelect = if (verified != null) {
+                            { ip -> selectIp(ip, resultTable) }
+                        } else {
+                            null
+                        }
                     )
                 )
             }
@@ -763,13 +763,7 @@ class MainActivity : Activity() {
                         if (item.success) String.format(Locale.US, "%.0f%%", item.stability) else "-",
                         if (item.success) item.pop else "-",
                         header = false,
-                        columnWidths = columnWidths,
-                        selectedIp = restoredSelectedIp,
-                        onSelect = if (item.success) {
-                            { ip -> selectIp(ip, resultTable) }
-                        } else {
-                            null
-                        }
+                        columnWidths = columnWidths
                     )
                 )
             }
@@ -847,12 +841,13 @@ class MainActivity : Activity() {
             )
         }
 
-        val widths = contentColumnWidths(rows)
+        val widths = contentColumnWidths(rows, includeSelector = true)
         resultTable.addView(
             createResultRow(
                 "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
                 header = true,
-                columnWidths = widths
+                columnWidths = widths,
+                showSelector = true
             )
         )
 
@@ -869,6 +864,7 @@ class MainActivity : Activity() {
                     header = false,
                     columnWidths = widths,
                     selectedIp = selectedIp,
+                    showSelector = true,
                     onSelect = if (verified != null) {
                         { ip -> selectIp(ip, resultTable) }
                     } else {
@@ -913,40 +909,43 @@ class MainActivity : Activity() {
         header: Boolean,
         columnWidths: IntArray,
         selectedIp: String? = null,
+        showSelector: Boolean = false,
         onSelect: ((String) -> Unit)? = null
     ): LinearLayout {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
 
-        val selector = TextView(this)
-        if (!header && onSelect != null) {
-            selector.tag = ip
-            selector.contentDescription = if (ip == selectedIp) {
-                "当前使用 $ip"
+        if (showSelector) {
+            val selector = TextView(this)
+            if (!header && onSelect != null) {
+                selector.tag = ip
+                selector.contentDescription = if (ip == selectedIp) {
+                    "当前使用 $ip"
+                } else {
+                    "选择 $ip"
+                }
+                selector.gravity = Gravity.CENTER
+                selector.setPadding(0, 0, 0, 0)
+                selector.background = createSelectorDrawable(ip == selectedIp)
+                selector.isClickable = true
+                selector.isFocusable = true
+                selector.setOnClickListener {
+                    onSelect(ip)
+                }
             } else {
-                "选择 $ip"
+                selector.setBackgroundColor(Color.TRANSPARENT)
+                selector.isClickable = false
+                selector.isFocusable = false
             }
-            selector.gravity = Gravity.CENTER
-            selector.setPadding(0, 0, 0, 0)
-            selector.background = createSelectorDrawable(ip == selectedIp)
-            selector.isClickable = true
-            selector.isFocusable = true
-            selector.setOnClickListener {
-                onSelect(ip)
-            }
-        } else {
-            selector.setBackgroundColor(Color.TRANSPARENT)
-            selector.isClickable = false
-            selector.isFocusable = false
-        }
 
-        row.addView(
-            selector,
-            LinearLayout.LayoutParams(dp(28), dp(28)).apply {
-                marginEnd = dp(4)
-            }
-        )
+            row.addView(
+                selector,
+                LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+                    marginEnd = dp(4)
+                }
+            )
+        }
 
         val values = listOf(ip, loss, latency, speed, stability, pop)
         values.forEachIndexed { index, value ->
@@ -1042,7 +1041,10 @@ class MainActivity : Activity() {
      * Any unused screen width is then distributed evenly so short columns
      * do not become disproportionately narrow.
      */
-    private fun contentColumnWidths(rows: List<List<String>>): IntArray {
+    private fun contentColumnWidths(
+        rows: List<List<String>>,
+        includeSelector: Boolean = false
+    ): IntArray {
         val widths = IntArray(6)
 
         rows.forEach { row ->
@@ -1056,7 +1058,8 @@ class MainActivity : Activity() {
         }
 
         // Every row now reserves a 28dp selection column plus its margin.
-        val available = resources.displayMetrics.widthPixels - dp(100)
+        val selectorWidth = if (includeSelector) dp(32) else 0
+        val available = resources.displayMetrics.widthPixels - dp(68) - selectorWidth
         val total = widths.sum()
 
         if (total < available) {
