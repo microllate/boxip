@@ -247,11 +247,12 @@ class MainActivity : Activity() {
                         downloadResults.filter { it.pop in selectedRegion.pops }
                     }
 
+                    val allResultByIp = downloadResults.associateBy { it.ip }
                     val resultByIp = regionResults.associateBy { it.ip }
 
                     sampler.record(
                         downloadCandidates.map { scanResult ->
-                            val downloadResult = resultByIp[scanResult.ip]
+                            val downloadResult = allResultByIp[scanResult.ip]
                             CfstLearningObservation(
                                 ip = scanResult.ip,
                                 downloadSpeedMbps = downloadResult?.downloadSpeedMbps ?: 0.0,
@@ -261,11 +262,17 @@ class MainActivity : Activity() {
                         }
                     )
 
-                    val displayedResults = downloadCandidates
-                        .map { scanResult ->
+                    val displayedResults = if (selectedRegion.pops.isEmpty()) {
+                        downloadCandidates.map { scanResult ->
                             DownloadDisplayResult(scanResult, resultByIp[scanResult.ip])
                         }
-                        .sortedWith(
+                    } else {
+                        downloadCandidates.mapNotNull { scanResult ->
+                            resultByIp[scanResult.ip]?.let { downloadResult ->
+                                DownloadDisplayResult(scanResult, downloadResult)
+                            }
+                        }
+                    }.sortedWith(
                             compareBy<DownloadDisplayResult> { it.downloadResult == null }
                                 .thenByDescending { it.downloadResult?.downloadSpeedMbps ?: 0.0 }
                         )
