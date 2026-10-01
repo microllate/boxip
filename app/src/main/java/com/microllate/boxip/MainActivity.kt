@@ -389,7 +389,6 @@ class MainActivity : Activity() {
                     val selectedIp = vlessResults
                         .firstOrNull { it.success }
                         ?.ip
-                        ?: regionResults.firstOrNull()?.ip
                     if (selectedIp != null) {
                         BoxIpDnsServer.setCurrentIp(selectedIp)
                     }
@@ -417,7 +416,8 @@ class MainActivity : Activity() {
                             displayedResults,
                             realNodeCandidates,
                             realNodeResults,
-                            selectedIp
+                            selectedIp,
+                            vlessResults
                         )
                         saveLastResults(
                             ranges.ipv4.size,
@@ -457,7 +457,8 @@ class MainActivity : Activity() {
         displayedResults: List<DownloadDisplayResult>,
         realNodeCandidates: List<CfstDownloadResult> = emptyList(),
         realNodeResults: List<CfstDownloadResult> = emptyList(),
-        selectedIp: String? = null
+        selectedIp: String? = null,
+        vlessResults: List<VlessWsResult> = emptyList()
     ) {
         resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
@@ -569,6 +570,30 @@ class MainActivity : Activity() {
                     )
                 )
             }
+        if (vlessResults.isNotEmpty()) {
+            val section = TextView(this).apply {
+                text = "真实 VLESS + WS 验证"
+                setTextColor(getThemeColor(R.attr.boxTextPrimary))
+                textSize = 13f
+                setPadding(dp(4), dp(18), dp(4), dp(8))
+            }
+            resultTable.addView(section)
+
+            vlessResults.forEach { result ->
+                val row = TextView(this).apply {
+                    text = if (result.success) {
+                        "✓ " + result.ip + "   成功   " + (result.latencyMs?.let { "${it} ms" } ?: "-")
+                    } else {
+                        "✕ " + result.ip + "   " + (result.error ?: "失败")
+                    }
+                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                    textSize = 12f
+                    setPadding(dp(4), dp(6), dp(4), dp(6))
+                    maxLines = 2
+                }
+                resultTable.addView(row)
+            }
+        }
         }
     }
 
@@ -581,7 +606,8 @@ class MainActivity : Activity() {
         realNodeCandidates: List<CfstDownloadResult>,
         realNodeResults: List<CfstDownloadResult>,
         selectedIp: String?
-    ) {
+,
+        vlessResults: List<VlessWsResult>    ) {
         val array = JSONArray()
         results.forEach { item ->
             val scanResult = item.scanResult
@@ -627,6 +653,15 @@ class MainActivity : Activity() {
             put("results", array)
             put("realNodeCandidates", JSONArray(serializeDownloadResults(realNodeCandidates)))
             put("realNodeResults", JSONArray(serializeDownloadResults(realNodeResults)))
+            put("vlessResults", JSONArray(vlessResults.map { r ->
+                JSONObject().apply {
+                    put("ip", r.ip)
+                    put("latencyMs", r.latencyMs ?: -1L)
+                    put("success", r.success)
+                    put("stage", r.stage)
+                    put("error", r.error ?: "")
+                }
+            }))
             put("selectedIp", selectedIp ?: "")
             put("savedAt", System.currentTimeMillis())
         }
@@ -645,6 +680,15 @@ class MainActivity : Activity() {
             .putString("results", array.toString())
             .putString("realNodeCandidates", serializeDownloadResults(realNodeCandidates))
             .putString("realNodeResults", serializeDownloadResults(realNodeResults))
+            .putString("vlessResults", JSONArray(vlessResults.map { r ->
+                JSONObject().apply {
+                    put("ip", r.ip)
+                    put("latencyMs", r.latencyMs ?: -1L)
+                    put("success", r.success)
+                    put("stage", r.stage)
+                    put("error", r.error ?: "")
+                }
+            }).toString())
             .putString("selectedIp", selectedIp ?: "")
             .putLong("savedAt", System.currentTimeMillis())
             .commit()
