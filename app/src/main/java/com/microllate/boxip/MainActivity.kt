@@ -939,7 +939,12 @@ class MainActivity : Activity() {
                         "可用入口 $ip"
                     }
                     background = createSelectorDrawable(ip == selectedIp)
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { onSelect?.invoke(ip) }
                 }
+
+                ipCell.setOnClickListener { onSelect?.invoke(ip) }
 
                 ipCell.addView(
                     selector,
@@ -956,6 +961,8 @@ class MainActivity : Activity() {
                     gravity = Gravity.CENTER_VERTICAL
                     includeFontPadding = false
                     maxLines = 1
+                    isClickable = true
+                    setOnClickListener { onSelect?.invoke(ip) }
                 }
 
                 ipCell.addView(
