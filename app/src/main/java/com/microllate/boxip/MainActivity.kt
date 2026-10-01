@@ -456,9 +456,9 @@ class MainActivity : Activity() {
                 val downloadResult = item.downloadResult
                 listOf(
                     scanResult.ip,
-                    downloadResult?.let { "${it.tcpConnectMs} ms" } ?: "失败",
-                    downloadResult?.let { "${it.tlsHandshakeMs} ms" } ?: "-",
-                    downloadResult?.let { "${it.ttfbMs} ms" } ?: "-",
+                    downloadResult?.let { "${it.tcpConnectMs}" } ?: "失败",
+                    downloadResult?.let { "${it.tlsHandshakeMs}" } ?: "-",
+                    downloadResult?.let { "${it.ttfbMs}" } ?: "-",
                     downloadResult?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                     downloadResult?.pop ?: "-"
                 )
@@ -485,9 +485,9 @@ class MainActivity : Activity() {
             resultTable.addView(
                 createResultRow(
                     scanResult.ip,
-                    downloadResult?.let { "${it.tcpConnectMs} ms" } ?: "失败",
-                    downloadResult?.let { "${it.tlsHandshakeMs} ms" } ?: "-",
-                    downloadResult?.let { "${it.ttfbMs} ms" } ?: "-",
+                    downloadResult?.let { "${it.tcpConnectMs}" } ?: "失败",
+                    downloadResult?.let { "${it.tlsHandshakeMs}" } ?: "-",
+                    downloadResult?.let { "${it.ttfbMs}" } ?: "-",
                     downloadResult?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                     downloadResult?.pop ?: "-",
                     header = false,
@@ -519,9 +519,9 @@ class MainActivity : Activity() {
                 val verified = realNodeByIp[result.ip]
                 listOf(
                     result.ip,
-                    verified?.let { "${it.tcpConnectMs} ms" } ?: "失败",
-                    verified?.let { "${it.tlsHandshakeMs} ms" } ?: "-",
-                    verified?.let { "${it.ttfbMs} ms" } ?: "-",
+                    verified?.let { "${it.tcpConnectMs}" } ?: "失败",
+                    verified?.let { "${it.tlsHandshakeMs}" } ?: "-",
+                    verified?.let { "${it.ttfbMs}" } ?: "-",
                     verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                     verified?.pop ?: "-"
                 )
@@ -540,9 +540,9 @@ class MainActivity : Activity() {
                 resultTable.addView(
                     createResultRow(
                         result.ip,
-                        verified?.let { "${it.tcpConnectMs} ms" } ?: "失败",
-                        verified?.let { "${it.tlsHandshakeMs} ms" } ?: "-",
-                        verified?.let { "${it.ttfbMs} ms" } ?: "-",
+                        verified?.let { "${it.tcpConnectMs}" } ?: "失败",
+                        verified?.let { "${it.tlsHandshakeMs}" } ?: "-",
+                        verified?.let { "${it.ttfbMs}" } ?: "-",
                         verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                         verified?.pop ?: "-",
                         header = false,
@@ -733,9 +733,9 @@ class MainActivity : Activity() {
                 restored.map { item ->
                     listOf(
                         item.ip,
-                        if (item.success) "${item.tcpMs} ms" else "失败",
-                        if (item.success) "${item.tlsMs} ms" else "-",
-                        if (item.success) "${item.ttfbMs} ms" else "-",
+                        if (item.success) "${item.tcpMs}" else "失败",
+                        if (item.success) "${item.tlsMs}" else "-",
+                        if (item.success) "${item.ttfbMs}" else "-",
                         if (item.success) String.format(Locale.US, "%.0f%%", item.stability) else "-",
                         if (item.success) item.pop else "-"
                     )
@@ -760,9 +760,9 @@ class MainActivity : Activity() {
                 resultTable.addView(
                     createResultRow(
                         item.ip,
-                        if (item.success) "${item.tcpMs} ms" else "失败",
-                        if (item.success) "${item.tlsMs} ms" else "-",
-                        if (item.success) "${item.ttfbMs} ms" else "-",
+                        if (item.success) "${item.tcpMs}" else "失败",
+                        if (item.success) "${item.tlsMs}" else "-",
+                        if (item.success) "${item.ttfbMs}" else "-",
                         if (item.success) String.format(Locale.US, "%.0f%%", item.stability) else "-",
                         if (item.success) item.pop else "-",
                         header = false,
@@ -838,7 +838,7 @@ class MainActivity : Activity() {
                 candidate.ip,
                 verified?.let { "${it.tcpMs} ms" } ?: "失败",
                 verified?.let { "${it.tlsMs} ms" } ?: "-",
-                verified?.let { "${it.ttfbMs} ms" } ?: "-",
+                verified?.let { "${it.ttfbMs}" } ?: "-",
                 verified?.let { String.format(Locale.US, "%.0f%%", it.stability) } ?: "-",
                 verified?.pop ?: "-"
             )
@@ -861,7 +861,7 @@ class MainActivity : Activity() {
                     candidate.ip,
                     verified?.let { "${it.tcpMs} ms" } ?: "失败",
                     verified?.let { "${it.tlsMs} ms" } ?: "-",
-                    verified?.let { "${it.ttfbMs} ms" } ?: "-",
+                    verified?.let { "${it.ttfbMs}" } ?: "-",
                     verified?.let { String.format(Locale.US, "%.0f%%", it.stability) } ?: "-",
                     verified?.pop ?: "-",
                     header = false,
