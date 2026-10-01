@@ -35,8 +35,6 @@ object BoxIpDnsServer {
     private var socket: DatagramSocket? = null
     private var serverExecutor: ExecutorService? = null
 
-    private val requestExecutor = Executors.newCachedThreadPool()
-
     @Synchronized
     fun start() {
         if (started) return
@@ -93,9 +91,10 @@ object BoxIpDnsServer {
     }
 
     private fun serve(localSocket: DatagramSocket) {
+        val buffer = ByteArray(1500)
+
         while (started) {
             try {
-                val buffer = ByteArray(1500)
                 val packet = DatagramPacket(buffer, buffer.size)
 
                 localSocket.receive(packet)
@@ -104,31 +103,20 @@ object BoxIpDnsServer {
                     packet.offset,
                     packet.offset + packet.length
                 )
-                val address = packet.address
-                val port = packet.port
 
-                requestExecutor.execute {
-                    try {
-                        val response = buildResponse(request)
+                val response = buildResponse(request) ?: continue
 
-                        if (response != null) {
-                            val reply = DatagramPacket(
-                                response,
-                                response.size,
-                                address,
-                                port
-                            )
+                // DNS is intentionally processed synchronously. This service is
+                // a tiny loopback resolver, so preserving the exact request
+                // source port is more important than parallel request handling.
+                val reply = DatagramPacket(
+                    response,
+                    response.size,
+                    packet.address,
+                    packet.port
+                )
 
-                            synchronized(localSocket) {
-                                if (!localSocket.isClosed) {
-                                    localSocket.send(reply)
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to process DNS request", e)
-                    }
-                }
+                localSocket.send(reply)
             } catch (e: Exception) {
                 if (!started || localSocket.isClosed) break
                 Log.e(TAG, "DNS receive error", e)
