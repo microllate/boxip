@@ -27,6 +27,7 @@ class MainActivity : Activity() {
         private const val THEME_LIGHT = 1
         private const val THEME_DARK = 2
         private const val KEY_REGION = "region"
+        private const val KEY_RESULTS_SNAPSHOT = "snapshot"
     }
 
     private data class RegionOption(
@@ -590,8 +591,26 @@ class MainActivity : Activity() {
             return resultArray.toString()
         }
 
+        val snapshot = JSONObject().apply {
+            put("version", 2)
+            put("ranges", ranges)
+            put("candidates", candidates)
+            put("tcp", tcp)
+            put("downloads", downloads)
+            put("results", array)
+            put("realNodeCandidates", JSONArray(serializeDownloadResults(realNodeCandidates)))
+            put("realNodeResults", JSONArray(serializeDownloadResults(realNodeResults)))
+            put("selectedIp", selectedIp ?: "")
+            put("savedAt", System.currentTimeMillis())
+        }
+
+        // Keep the complete scan state in one snapshot. commit() is intentional:
+        // the selected IP is used by the loopback DNS immediately after a scan,
+        // so the persisted state must be confirmed on disk before returning.
         getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
             .edit()
+            .putString(KEY_RESULTS_SNAPSHOT, snapshot.toString())
+            // Keep the old keys for migration/debugging and older builds.
             .putInt("ranges", ranges)
             .putInt("candidates", candidates)
             .putInt("tcp", tcp)
@@ -601,7 +620,7 @@ class MainActivity : Activity() {
             .putString("realNodeResults", serializeDownloadResults(realNodeResults))
             .putString("selectedIp", selectedIp ?: "")
             .putLong("savedAt", System.currentTimeMillis())
-            .apply()
+            .commit()
     }
 
     private fun restoreLastResults(
@@ -614,22 +633,54 @@ class MainActivity : Activity() {
         downloadValue: TextView
     ) {
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
-        val raw = prefs.getString("results", null) ?: return
 
         try {
-            val array = JSONArray(raw)
+            // Prefer the unified snapshot. Fall back to the legacy keys so
+            // results saved by older BoxIP builds can still be displayed.
+            val snapshotRaw = prefs.getString(KEY_RESULTS_SNAPSHOT, null)
+            val snapshot = snapshotRaw?.let { JSONObject(it) }
+
+            val array = snapshot?.optJSONArray("results")
+                ?: prefs.getString("results", null)?.let { JSONArray(it) }
+                ?: return
+
             val restored = mutableListOf<RestoredResult>()
 
-            val restoredRealCandidates = parseRestoredDownloadResults(
-                prefs.getString("realNodeCandidates", null)
-            )
-            val restoredRealResults = parseRestoredDownloadResults(
-                prefs.getString("realNodeResults", null)
-            )
+            val restoredRealCandidates = snapshot?.optJSONArray("realNodeCandidates")?.toString()
+                ?.let { parseRestoredDownloadResults(it) }
+                ?: parseRestoredDownloadResults(
+                    prefs.getString("realNodeCandidates", null)
+                )
 
-            val savedSelectedIp = prefs.getString("selectedIp", null).orEmpty()
-            if (savedSelectedIp.isNotEmpty()) {
-                BoxIpDnsServer.setCurrentIp(savedSelectedIp)
+            val restoredRealResults = snapshot?.optJSONArray("realNodeResults")?.toString()
+                ?.let { parseRestoredDownloadResults(it) }
+                ?: parseRestoredDownloadResults(
+                    prefs.getString("realNodeResults", null)
+                )
+
+            val savedSelectedIp = snapshot?.optString("selectedIp", "")
+                ?.takeIf { it.isNotEmpty() }
+                ?: prefs.getString("selectedIp", null).orEmpty()
+
+            // The persisted selected IP is authoritative. If an older snapshot
+            // has no selected IP, derive it from the same ordering shown in UI:
+            // real-domain verification first, otherwise the first successful
+            // generic result.
+            val restoredSelectedIp = savedSelectedIp
+                .takeIf { it.isNotEmpty() }
+                ?: restoredRealResults.firstOrNull()?.ip
+                ?: run {
+                    for (index in 0 until array.length()) {
+                        val item = array.getJSONObject(index)
+                        if (item.optBoolean("success", false)) {
+                            return@run item.optString("ip", "").takeIf { it.isNotEmpty() }
+                        }
+                    }
+                    null
+                }
+
+            if (restoredSelectedIp != null) {
+                BoxIpDnsServer.setCurrentIp(restoredSelectedIp)
             }
 
             for (index in 0 until array.length()) {
@@ -648,10 +699,14 @@ class MainActivity : Activity() {
                 )
             }
 
-            rangesValue.text = prefs.getInt("ranges", 0).toString()
-            candidatesValue.text = prefs.getInt("candidates", 0).toString()
-            tcpValue.text = prefs.getInt("tcp", 0).toString()
-            downloadValue.text = prefs.getInt("downloads", restored.size).toString()
+            rangesValue.text = (snapshot?.optInt("ranges", prefs.getInt("ranges", 0))
+                ?: prefs.getInt("ranges", 0)).toString()
+            candidatesValue.text = (snapshot?.optInt("candidates", prefs.getInt("candidates", 0))
+                ?: prefs.getInt("candidates", 0)).toString()
+            tcpValue.text = (snapshot?.optInt("tcp", prefs.getInt("tcp", 0))
+                ?: prefs.getInt("tcp", 0)).toString()
+            downloadValue.text = (snapshot?.optInt("downloads", prefs.getInt("downloads", restored.size))
+                ?: prefs.getInt("downloads", restored.size)).toString()
 
             statusText.text = "已恢复上次测速结果"
             resultText.visibility = if (restored.isEmpty()) View.VISIBLE else View.GONE
