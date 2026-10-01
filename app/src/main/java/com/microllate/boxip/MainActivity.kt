@@ -427,7 +427,8 @@ class MainActivity : Activity() {
                             displayedResults,
                             realNodeCandidates,
                             realNodeResults,
-                            selectedIp
+                            selectedIp,
+                            vlessResults
                         )
 
                         startButton.isEnabled = true
