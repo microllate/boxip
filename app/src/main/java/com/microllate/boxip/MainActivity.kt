@@ -365,6 +365,17 @@ class MainActivity : Activity() {
                         ).download(realNodeCandidates.map { it.ip })
                     }
 
+                    // Apply the best real-domain result to BoxIP's local DNS.
+                    // The hostname/SNI stays life.mozzarella.top; only the resolved
+                    // Cloudflare edge IP changes.
+                    val selectedIp = realNodeResults
+                        .firstOrNull()
+                        ?.ip
+                        ?: regionResults.firstOrNull()?.ip
+                    if (selectedIp != null) {
+                        BoxIpDnsServer.setCurrentIp(selectedIp)
+                    }
+
                     runOnUiThread {
                         downloadValue.text = regionResults.size.toString()
                         statusText.text = if (selectedRegion.pops.isEmpty()) {
