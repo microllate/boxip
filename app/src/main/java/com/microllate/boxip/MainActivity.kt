@@ -273,9 +273,12 @@ class MainActivity : Activity() {
                             }
                         }
                     }.sortedWith(
-                            compareBy<DownloadDisplayResult> { it.downloadResult == null }
-                                .thenByDescending { it.downloadResult?.downloadSpeedMbps ?: 0.0 }
-                        )
+                        compareBy<DownloadDisplayResult> { it.downloadResult == null }
+                            .thenByDescending { it.downloadResult?.stabilityPercent ?: 0.0 }
+                            .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
+                            .thenBy { it.downloadResult?.ttfbMs ?: Long.MAX_VALUE }
+                            .thenBy { it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE }
+                    )
 
                     runOnUiThread {
                         downloadValue.text = regionResults.size.toString()
