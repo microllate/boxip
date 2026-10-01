@@ -351,31 +351,44 @@ class MainActivity : Activity() {
                     )
 
                     val realNodeCandidates = regionResults.take(10)
-                    val realNodeResults = if (realNodeCandidates.isEmpty()) {
+
+                    // Keep the existing first/second-stage selection completely intact.
+                    // Only the final Top 10 are passed to the real VLESS + WS verifier.
+                    val physicalInterface =
+                        connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
+
+                    val vlessResults = if (realNodeCandidates.isEmpty()) {
                         emptyList()
                     } else {
                         runOnUiThread {
-                            statusText.text = "第三阶段 · 真实节点域名验证"
+                            statusText.text = "第三阶段 · 真实 VLESS + WS 验证"
                             resultText.visibility = View.VISIBLE
-                            resultText.text = "仅验证 Top ${realNodeCandidates.size} 个入口，每个 IP 进行 2 次轻量 TLS / TTFB 探测…"
+                            resultText.text =
+                                "仅验证 Top ${realNodeCandidates.size} 个入口：真实 sing-box → TLS → WS → VLESS…"
                         }
 
-                        CfstDownloader(
+                        VlessWsScanner(
                             network = physicalNetwork,
-                            downloadUrl = "https://life.mozzarella.top/cdn-cgi/trace",
-                            observationMs = 10_000,
-                            probeIntervalMs = 5_000,
-                            connectTimeoutMs = 3_000,
-                            probeTimeoutMs = 3_000,
-                            concurrency = 2
-                        ).download(realNodeCandidates.map { it.ip })
+                            timeoutMs = 8_000,
+                            concurrency = 4
+                        ).scan(
+                            ips = realNodeCandidates.map { it.ip },
+                            host = "life.mozzarella.top",
+                            path = "/micro?ed=2560",
+                            uuid = "REPLACE_WITH_UI_UUID",
+                            interfaceName = physicalInterface
+                        )
                     }
 
-                    // Apply the best real-domain result to BoxIP's local DNS.
-                    // The hostname/SNI stays life.mozzarella.top; only the resolved
-                    // Cloudflare edge IP changes.
-                    val selectedIp = realNodeResults
-                        .firstOrNull()
+                    // Keep the existing result table data for the first/second stages.
+                    // The final selected IP is decided only by a successful real
+                    // VLESS + WS response.
+                    val realNodeResults = realNodeCandidates.mapNotNull { candidate ->
+                        regionResults.firstOrNull { it.ip == candidate.ip }
+                    }
+
+                    val selectedIp = vlessResults
+                        .firstOrNull { it.success }
                         ?.ip
                         ?: regionResults.firstOrNull()?.ip
                     if (selectedIp != null) {
