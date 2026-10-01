@@ -54,7 +54,7 @@ class VlessWsScanner(
         return try {
             ips.distinct().mapIndexed { index, ip ->
                 executor.submit(Callable {
-                    test(ip, host, path, uuid, BASE_PORT + index)
+                    test(ip, host, path, uuid, interfaceName, BASE_PORT + index)
                 })
             }.mapNotNull { future ->
                 runCatching { future.get() }.getOrNull()
@@ -210,7 +210,7 @@ class VlessWsScanner(
             .put("uuid", uuid)
             .put("tls", tls)
             .put("transport", transport)
-            .put("packet_encoding", "xudp")
+            .put("packet_encoding", "xudp")\n\n        if (!interfaceName.isNullOrBlank()) {\n            vless.put("bind_interface", interfaceName)\n        }
 
         val inbound = JSONObject()
             .put("type", "mixed")
