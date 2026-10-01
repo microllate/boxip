@@ -1127,69 +1127,43 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Keep the IPv4 column wide enough for a complete address, then give the
-     * remaining columns only the space they actually need. Numeric columns
-     * are right-aligned so their values line up cleanly.
+     * Give the IP column exactly the width needed by the longest IPv4 value,
+     * including the selector dot. Split all remaining screen space evenly
+     * across TCP / TLS / TTFB / stability / region.
      */
     private fun contentColumnWidths(rows: List<List<String>>): IntArray {
         val widths = IntArray(6)
 
+        // Only the IP column is content-sized. The other five columns are
+        // intentionally equal-width so the table stays visually balanced.
+        val ipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = sp(12f)
+        }
+        var maxIpWidth = ipPaint.measureText("111.111.111.111").toInt()
+
         rows.forEach { row ->
-            row.forEachIndexed { index, value ->
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    textSize = sp(if (index == 0 && value != "IP") 12f else 13f)
-                }
-                val measured = paint.measureText(value).toInt()
-                val horizontalPadding = if (index in 1..4) dp(10) else dp(16)
-                widths[index] = maxOf(
-                    widths[index],
-                    measured + horizontalPadding
+            if (row.isNotEmpty()) {
+                maxIpWidth = maxOf(
+                    maxIpWidth,
+                    ipPaint.measureText(row[0]).toInt()
                 )
             }
         }
 
-        // IP must always fit a complete IPv4 address plus the status dot.
-        val ipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = sp(12f)
-        }
-        val ipContentWidth = ipPaint.measureText("111.111.111.111").toInt()
-        widths[0] = maxOf(
-            widths[0],
-            ipContentWidth + dp(14 + 2 + 6 + 4)
-        )
+        widths[0] = maxIpWidth + dp(14 + 2 + 6 + 4)
 
-        // The table no longer displays "ms", so size numeric columns for the
-        // values themselves. Keeping these columns compact avoids large gaps
-        // between TCP, TLS and TTFB.
-        val metricPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = sp(12f)
-        }
-        widths[1] = maxOf(widths[1], metricPaint.measureText("999").toInt() + dp(10))
-        widths[2] = maxOf(widths[2], metricPaint.measureText("9999").toInt() + dp(10))
-        widths[3] = maxOf(widths[3], metricPaint.measureText("9999").toInt() + dp(10))
-        widths[4] = maxOf(widths[4], metricPaint.measureText("100%").toInt() + dp(10))
-
-        // Use the screen width without artificially widening every numeric
-        // column. Extra room goes to the IP column, while the metrics stay
-        // visually close together.
+        // Result table uses 8dp horizontal ScrollView padding plus the root
+        // side margins. Give every non-IP column the same share.
         val available = resources.displayMetrics.widthPixels - dp(56)
+        val remaining = maxOf(0, available - widths[0])
+        val each = remaining / 5
+        var remainder = remaining % 5
 
-        if (widths.sum() < available) {
-            widths[0] += available - widths.sum()
-        } else {
-            // Never shrink the IP column below the full IPv4 width.
-            // Compress only the five metric columns proportionally.
-            val otherTotal = widths.drop(1).sum()
-            val targetOther = maxOf(0, available - widths[0])
-
-            if (otherTotal > targetOther && otherTotal > 0) {
-                val scale = targetOther.toFloat() / otherTotal.toFloat()
-                for (index in 1 until widths.size) {
-                    widths[index] = maxOf(
-                        dp(30),
-                        (widths[index] * scale).toInt()
-                    )
-                }
+        for (index in 1 until widths.size) {
+            widths[index] = each
+            if (remainder > 0) {
+                widths[index]++
+                remainder--
             }
         }
 
