@@ -939,6 +939,7 @@ class MainActivity : Activity() {
                         "可用入口 $ip"
                     }
                     background = createSelectorDrawable(ip == selectedIp)
+                    tag = ip
                     isClickable = true
                     isFocusable = true
                     setOnClickListener { onSelect?.invoke(ip) }
@@ -948,7 +949,7 @@ class MainActivity : Activity() {
 
                 ipCell.addView(
                     selector,
-                    LinearLayout.LayoutParams(dp(10), dp(10)).apply {
+                    LinearLayout.LayoutParams(dp(14), dp(14)).apply {
                         marginStart = dp(2)
                         marginEnd = dp(6)
                     }
@@ -1083,20 +1084,16 @@ class MainActivity : Activity() {
 
     private fun updateSelectionIndicators(resultTable: LinearLayout, selectedIp: String) {
         for (index in 0 until resultTable.childCount) {
-            val child = resultTable.getChildAt(index)
-            if (child !is LinearLayout) continue
+            val row = resultTable.getChildAt(index) as? LinearLayout ?: continue
+            val ipCell = row.getChildAt(0) as? LinearLayout ?: continue
+            val selector = ipCell.getChildAt(0) as? TextView ?: continue
+            val ip = selector.tag as? String ?: continue
 
-            for (childIndex in 0 until child.childCount) {
-                val selector = child.getChildAt(childIndex)
-                val ip = selector.tag as? String ?: continue
-                selector.background = createSelectorDrawable(ip == selectedIp)
-                if (selector is TextView) {
-                    selector.contentDescription = if (ip == selectedIp) {
-                        "当前使用 $ip"
-                    } else {
-                        "选择 $ip"
-                    }
-                }
+            selector.background = createSelectorDrawable(ip == selectedIp)
+            selector.contentDescription = if (ip == selectedIp) {
+                "当前使用 $ip"
+            } else {
+                "可用入口 $ip"
             }
         }
     }
