@@ -65,15 +65,18 @@ class MainActivity : Activity() {
                     val tcpResults = TcpScanner(network = physicalNetwork).scan(candidates)
                     val tcpSuccessful = tcpResults.filter { it.success }
 
+                    val physicalInterface = connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
+
                     statusText.post {
-                        statusText.text = "第二阶段：手机 → Cloudflare → 服务器（VLESS + WS）..."
+                        statusText.text = "第二阶段：手机 → Cloudflare → 服务器（真实 sing-box 流量）..."
                     }
 
                     val vlessResults = VlessWsScanner(network = physicalNetwork).scan(
                         ips = tcpSuccessful.map { it.ip },
                         host = host,
                         path = path,
-                        uuid = uuid
+                        uuid = uuid,
+                        interfaceName = physicalInterface
                     )
 
                     val successful = vlessResults.filter { it.success }.take(30)
