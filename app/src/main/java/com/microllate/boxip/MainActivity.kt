@@ -907,8 +907,8 @@ class MainActivity : Activity() {
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
 
+        val selector = TextView(this)
         if (!header && onSelect != null) {
-            val selector = TextView(this)
             selector.tag = ip
             selector.contentDescription = if (ip == selectedIp) {
                 "当前使用 $ip"
@@ -923,14 +923,18 @@ class MainActivity : Activity() {
             selector.setOnClickListener {
                 onSelect(ip)
             }
-
-            row.addView(
-                selector,
-                LinearLayout.LayoutParams(dp(28), dp(28)).apply {
-                    marginEnd = dp(4)
-                }
-            )
+        } else {
+            selector.setBackgroundColor(Color.TRANSPARENT)
+            selector.isClickable = false
+            selector.isFocusable = false
         }
+
+        row.addView(
+            selector,
+            LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+                marginEnd = dp(4)
+            }
+        )
 
         val values = listOf(ip, loss, latency, speed, stability, pop)
         values.forEachIndexed { index, value ->
@@ -1039,7 +1043,8 @@ class MainActivity : Activity() {
             }
         }
 
-        val available = resources.displayMetrics.widthPixels - dp(68)
+        // Every row now reserves a 28dp selection column plus its margin.
+        val available = resources.displayMetrics.widthPixels - dp(100)
         val total = widths.sum()
 
         if (total < available) {
