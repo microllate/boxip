@@ -26,9 +26,6 @@ class CfstSampler(
     companion object {
         private const val RETAIN_FASTEST_MIN_SPEED_MBPS = 10.0
     }
-    companion object {
-        private const val RETAIN_FASTEST_MIN_SPEED_MBPS = 10.0
-    }
     private val prefs = context.getSharedPreferences("boxip_learning", Context.MODE_PRIVATE)
     private val historyKey = "history_$networkKey"
     private val fastestIpKey = "fastest_ip_$networkKey"
