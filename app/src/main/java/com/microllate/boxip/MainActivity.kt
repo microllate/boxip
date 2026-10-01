@@ -490,7 +490,11 @@ class MainActivity : Activity() {
                     header = false,
                     columnWidths = columnWidths,
                     selectedIp = selectedIp,
-                    onSelect = { ip -> selectIp(ip, resultTable) }
+                    onSelect = if (downloadResult != null) {
+                        { ip -> selectIp(ip, resultTable) }
+                    } else {
+                        null
+                    }
                 )
             )
         }
@@ -761,7 +765,11 @@ class MainActivity : Activity() {
                         header = false,
                         columnWidths = columnWidths,
                         selectedIp = restoredSelectedIp,
-                        onSelect = { ip -> selectIp(ip, resultTable) }
+                        onSelect = if (item.success) {
+                            { ip -> selectIp(ip, resultTable) }
+                        } else {
+                            null
+                        }
                     )
                 )
             }
@@ -861,7 +869,11 @@ class MainActivity : Activity() {
                     header = false,
                     columnWidths = widths,
                     selectedIp = selectedIp,
-                    onSelect = { ip -> selectIp(ip, resultTable) }
+                    onSelect = if (verified != null) {
+                        { ip -> selectIp(ip, resultTable) }
+                    } else {
+                        null
+                    }
                 )
             )
         }
