@@ -1158,34 +1158,24 @@ class MainActivity : Activity() {
             ipContentWidth + dp(14 + 2 + 6 + 4)
         )
 
-        // Numeric columns must always have room for their unit suffix.
-        // Otherwise proportional shrinking can leave values such as "14 ms"
-        // rendered as just "14".
+        // The table no longer displays "ms", so size numeric columns for the
+        // values themselves. Keeping these columns compact avoids large gaps
+        // between TCP, TLS and TTFB.
         val metricPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = sp(12f)
         }
-        widths[1] = maxOf(widths[1], metricPaint.measureText("999 ms").toInt() + dp(10))
-        widths[2] = maxOf(widths[2], metricPaint.measureText("9999 ms").toInt() + dp(10))
-        widths[3] = maxOf(widths[3], metricPaint.measureText("9999 ms").toInt() + dp(10))
+        widths[1] = maxOf(widths[1], metricPaint.measureText("999").toInt() + dp(10))
+        widths[2] = maxOf(widths[2], metricPaint.measureText("9999").toInt() + dp(10))
+        widths[3] = maxOf(widths[3], metricPaint.measureText("9999").toInt() + dp(10))
         widths[4] = maxOf(widths[4], metricPaint.measureText("100%").toInt() + dp(10))
 
-        // Use more of the physical screen: the root has 20dp side padding and
-        // the result ScrollView now keeps only 8dp horizontal padding.
+        // Use the screen width without artificially widening every numeric
+        // column. Extra room goes to the IP column, while the metrics stay
+        // visually close together.
         val available = resources.displayMetrics.widthPixels - dp(56)
 
         if (widths.sum() < available) {
-            // Spare width is useful mainly for readability of the metric columns.
-            val extra = available - widths.sum()
-            val columns = widths.indices.drop(1)
-            val each = extra / columns.size
-            var remainder = extra % columns.size
-            for (index in columns) {
-                widths[index] += each
-                if (remainder > 0) {
-                    widths[index]++
-                    remainder--
-                }
-            }
+            widths[0] += available - widths.sum()
         } else {
             // Never shrink the IP column below the full IPv4 width.
             // Compress only the five metric columns proportionally.
