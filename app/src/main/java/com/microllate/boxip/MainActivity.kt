@@ -143,7 +143,15 @@ class MainActivity : Activity() {
                         concurrency = 20
                     ).scan(candidates)
 
-                    val downloadCandidates = results.take(10)
+                    val historicalFastestIp = sampler.getHistoricalFastestIp()
+                    val downloadCandidates = buildList {
+                        addAll(results.take(10))
+                        if (historicalFastestIp != null && results.any { it.ip == historicalFastestIp } &&
+                            all { it.ip != historicalFastestIp } && size >= 10) {
+                            removeAt(lastIndex)
+                            results.first { it.ip == historicalFastestIp }.let { add(it) }
+                        }
+                    }
 
                     runOnUiThread {
                         tcpValue.text = results.size.toString()
