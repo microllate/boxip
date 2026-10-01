@@ -214,7 +214,7 @@ class MainActivity : Activity() {
         resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
 
-        val columnWeights = contentColumnWeights(
+        val columnWidths = contentColumnWidths(
             successfulResults.map { (scanResult, downloadResult) ->
                 listOf(
                     scanResult.ip,
@@ -227,7 +227,7 @@ class MainActivity : Activity() {
         )
 
         resultTable.addView(
-            createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true, columnWeights = columnWeights)
+            createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true, columnWidths = columnWidths)
         )
 
         val divider = View(this)
@@ -249,7 +249,7 @@ class MainActivity : Activity() {
                     String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
                     downloadResult.pop ?: "-",
                     header = false,
-                    columnWeights = columnWeights
+                    columnWidths = columnWidths
                 )
             )
         }
@@ -335,7 +335,7 @@ class MainActivity : Activity() {
             )
 
             resultTable.addView(
-                createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true, columnWeights = columnWeights)
+                createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true, columnWidths = columnWidths)
             )
 
             val divider = View(this)
@@ -357,7 +357,7 @@ class MainActivity : Activity() {
                         String.format(Locale.US, "%.2f MB/s", item.speed),
                         item.pop,
                         header = false,
-                        columnWeights = columnWeights
+                        columnWidths = columnWidths
                     )
                 )
             }
@@ -381,7 +381,7 @@ class MainActivity : Activity() {
         speed: String,
         pop: String,
         header: Boolean,
-        columnWeights: FloatArray
+        columnWidths: IntArray
     ): LinearLayout {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
@@ -405,9 +405,8 @@ class MainActivity : Activity() {
             row.addView(
                 cell,
                 LinearLayout.LayoutParams(
-                    0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    columnWeights[index]
+                    columnWidths[index],
+                    LinearLayout.LayoutParams.WRAP_CONTENT
                 )
             )
         }
@@ -419,16 +418,42 @@ class MainActivity : Activity() {
      * Give each column a weight based on the widest text currently shown.
      * This keeps the columns aligned across rows while avoiding fixed 20% columns.
      */
-    private fun contentColumnWeights(rows: List<List<String>>): FloatArray {
-        val widths = FloatArray(5)
+    /**
+     * Calculate one shared pixel width per column from the widest cell content.
+     * Any unused screen width is then distributed evenly so short columns
+     * do not become disproportionately narrow.
+     */
+    private fun contentColumnWidths(rows: List<List<String>>): IntArray {
+        val widths = IntArray(5)
 
         rows.forEach { row ->
             row.forEachIndexed { index, value ->
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     textSize = sp(if (index == 0 && value != "IP") 12f else 13f)
                 }
-                val width = paint.measureText(value) + dp(8)
-                widths[index] = maxOf(widths[index], width)
+                val measured = paint.measureText(value).toInt()
+                widths[index] = maxOf(widths[index], measured + dp(16))
+            }
+        }
+
+        val available = resources.displayMetrics.widthPixels - dp(68)
+        val total = widths.sum()
+
+        if (total < available) {
+            val extra = available - total
+            val each = extra / widths.size
+            var remainder = extra % widths.size
+            for (index in widths.indices) {
+                widths[index] += each
+                if (remainder > 0) {
+                    widths[index]++
+                    remainder--
+                }
+            }
+        } else if (total > available && total > 0) {
+            val scale = available.toFloat() / total.toFloat()
+            for (index in widths.indices) {
+                widths[index] = maxOf(dp(36), (widths[index] * scale).toInt())
             }
         }
 
