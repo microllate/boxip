@@ -143,13 +143,20 @@ class MainActivity : Activity() {
                         concurrency = 20
                     ).scan(candidates)
 
-                    val historicalFastestIp = sampler.getHistoricalFastestIp()
+                    val historicalFastestIps = sampler.getHistoricalFastestIps()
+                    val retainedResults = historicalFastestIps.mapNotNull { ip ->
+                        results.firstOrNull { it.ip == ip }
+                    }
                     val downloadCandidates = buildList {
-                        addAll(results.take(10))
-                        if (historicalFastestIp != null && results.any { it.ip == historicalFastestIp } &&
-                            all { it.ip != historicalFastestIp } && size >= 10) {
-                            removeAt(lastIndex)
-                            results.first { it.ip == historicalFastestIp }.let { add(it) }
+                        // All retained >10 MB/s IPs get priority whenever TCPing succeeds.
+                        addAll(retainedResults.distinctBy { it.ip }.take(10))
+
+                        // Fill the remaining slots with the current TCP top results.
+                        for (result in results) {
+                            if (size >= 10) break
+                            if (none { it.ip == result.ip }) {
+                                add(result)
+                            }
                         }
                     }
 
