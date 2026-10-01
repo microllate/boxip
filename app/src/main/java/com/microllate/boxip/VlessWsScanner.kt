@@ -36,430 +36,238 @@ class VlessWsScanner(
 ) {
     companion object {
         private const val SING_BOX = "/data/adb/box/bin/sing-box"
-        private const val TEST_PATH = "/cdn-cgi/trace"
+        private const val MAIN_CONFIG = "/data/adb/box/sing-box/config.json"
+        private const val TEST_URL_PATH = "/cdn-cgi/trace"
         private const val BASE_PORT = 18480
     }
+
+    private data class Profile(
+        val uuid: String,
+        val serverPort: Int,
+        val tlsServerName: String,
+        val wsPath: String,
+        val wsHost: String,
+        val earlyData: Int?
+    )
 
     fun scan(
         ips: List<String>,
         host: String,
         path: String,
-        uuid: String,
         interfaceName: String? = null
     ): List<VlessWsResult> {
         if (ips.isEmpty()) return emptyList()
 
-        val distinctIps = ips.distinct()
-        val pathParts = splitPath(path)
-        val workDir = File(System.getProperty("java.io.tmpdir") ?: "/data/local/tmp")
-        val stamp = System.nanoTime()
-        val configFile = File(workDir, "boxip-probe-" + stamp + ".json")
-        val logFile = File(workDir, "boxip-probe-" + stamp + ".log")
-        var process: Process? = null
-
-        try {
-            val ports = distinctIps.indices.associateWith { BASE_PORT + it }
-            configFile.writeText(
-                buildConfig(
-                    ips = distinctIps,
-                    host = host,
-                    path = pathParts.first,
-                    earlyData = pathParts.second,
-                    uuid = uuid,
-                    interfaceName = interfaceName,
-                    ports = ports
-                )
-            )
-
-            val command = "exec " + SING_BOX + " run -c " + shellQuote(configFile.absolutePath)
-            process = ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(true)
-                .redirectOutput(logFile)
-                .start()
-
-            if (!waitForProxies(ports.values, process, timeoutMs)) {
-                val detail = readLog(logFile)
-                return distinctIps.map {
-                    VlessWsResult(
-                        ip = it,
-                        latencyMs = null,
-                        success = false,
-                        stage = "sing-box",
-                        error = if (detail.isEmpty()) "临时 sing-box 未能启动全部测试端口" else detail
-                    )
-                }
+        val profile = loadProfile(host)
+            ?: return ips.distinct().map {
+                VlessWsResult(it, null, false, "配置", "未找到正在使用的 VLESS 配置: " + host)
             }
 
-            val executor = Executors.newFixedThreadPool(concurrency.coerceIn(1, 8))
-            return try {
-                distinctIps.mapIndexed { index, ip ->
-                    executor.submit(Callable {
-                        testRequest(
-                            ip = ip,
-                            host = host,
-                            port = ports.getValue(index)
-                        )
-                    })
-                }.mapNotNull { future ->
-                    runCatching { future.get() }.getOrNull()
-                }.sortedWith(
+        val executor = Executors.newFixedThreadPool(concurrency.coerceAtLeast(1))
+        try {
+            val tasks = ips.distinct().mapIndexed { index, ip ->
+                Callable {
+                    test(ip, host, path, profile, interfaceName, BASE_PORT + index)
+                }
+            }
+            return executor.invokeAll(tasks).map { it.get() }
+                .sortedWith(
                     compareBy<VlessWsResult> { !it.success }
                         .thenBy { it.latencyMs ?: Long.MAX_VALUE }
                 )
-            } finally {
-                executor.shutdown()
-                executor.awaitTermination(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
-                executor.shutdownNow()
-            }
-        } catch (e: Exception) {
-            val detail = readLog(logFile)
-            val message = buildString {
-                append(e.javaClass.simpleName)
-                if (!e.message.isNullOrBlank()) {
-                    append(": ")
-                    append(e.message)
-                }
-                if (detail.isNotBlank()) {
-                    append("\n")
-                    append(detail.takeLast(1200))
-                }
-            }
-            return distinctIps.map {
-                VlessWsResult(
-                    ip = it,
-                    latencyMs = null,
-                    success = false,
-                    stage = "真实代理流量",
-                    error = message
-                )
-            }
         } finally {
-            process?.let {
-                runCatching { it.destroy() }
-                runCatching {
-                    if (!it.waitFor(500, TimeUnit.MILLISECONDS)) {
-                        it.destroyForcibly()
-                    }
-                }
-            }
-            configFile.delete()
-            logFile.delete()
+            executor.shutdown()
+            executor.awaitTermination(30, TimeUnit.SECONDS)
+            executor.shutdownNow()
         }
     }
 
-    private fun testRequest(
+    private fun loadProfile(host: String): Profile? {
+        return try {
+            val process = ProcessBuilder("su", "-c", "cat '" + MAIN_CONFIG + "'")
+                .redirectErrorStream(true)
+                .start()
+            val json = process.inputStream.bufferedReader().use { it.readText() }
+            process.waitFor(3, TimeUnit.SECONDS)
+            if (json.isBlank()) return null
+            findVless(JSONObject(json), host)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun findVless(value: Any?, host: String): Profile? {
+        when (value) {
+            is JSONObject -> {
+                if (value.optString("type") == "vless" && value.optString("server") == host) {
+                    val tls = value.optJSONObject("tls") ?: JSONObject()
+                    val transport = value.optJSONObject("transport") ?: JSONObject()
+                    val headers = transport.optJSONObject("headers") ?: JSONObject()
+                    val wsPath = transport.optString("path", "/")
+                    val wsHost = headers.optString("Host", host)
+                    val earlyData = parseEarlyData(wsPath)
+                        ?: transport.optInt("max_early_data", 0).takeIf { it > 0 }
+
+                    return Profile(
+                        uuid = value.optString("uuid"),
+                        serverPort = value.optInt("server_port", 443),
+                        tlsServerName = tls.optString("server_name", host),
+                        wsPath = wsPath.substringBefore('?'),
+                        wsHost = wsHost,
+                        earlyData = earlyData
+                    )
+                }
+
+                val keys = value.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    findVless(value.opt(key), host)?.let { return it }
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until value.length()) {
+                    findVless(value.opt(i), host)?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun parseEarlyData(path: String): Int? {
+        val match = Regex("[?&]ed=(\\d+)").find(path) ?: return null
+        return match.groupValues[1].toIntOrNull()
+    }
+
+    private fun test(
         ip: String,
         host: String,
+        requestedPath: String,
+        profile: Profile,
+        interfaceName: String?,
         port: Int
     ): VlessWsResult {
-        return try {
-            /*
-             * Keep one SOCKS -> VLESS -> TLS -> WS connection alive.
-             * The first HTTP request is only a warm-up. The following three
-             * requests reuse the already-established proxy tunnel, so their
-             * median is a much better measure of steady-state performance.
-             */
-            val proxy = Proxy(
-                Proxy.Type.SOCKS,
-                InetSocketAddress("127.0.0.1", port)
-            )
-            val tunnel = Socket(proxy)
-            tunnel.connect(InetSocketAddress.createUnresolved(host, 443), timeoutMs)
-            tunnel.soTimeout = timeoutMs
+        val temp = File.createTempFile("boxip-vless-", ".json")
+        val log = File.createTempFile("boxip-vless-", ".log")
+        var process: Process? = null
 
-            val sslFactory = javax.net.ssl.SSLContext.getDefault().socketFactory
-            val ssl = sslFactory.createSocket(tunnel, host, 443, true) as javax.net.ssl.SSLSocket
-            ssl.soTimeout = timeoutMs
-            val params = ssl.sslParameters
-            params.serverNames = listOf(javax.net.ssl.SNIHostName(host))
-            // We send raw HTTP/1.1 below; do not let TLS negotiate HTTP/2.
-            params.applicationProtocols = arrayOf("http/1.1")
-            ssl.sslParameters = params
-            ssl.startHandshake()
+        try {
+            val (wsPath, earlyData) = splitPath(requestedPath.ifBlank { profile.wsPath }, profile.earlyData)
+            temp.writeText(buildConfig(ip, host, profile, wsPath, earlyData, interfaceName, port))
 
-            val input = ssl.inputStream.buffered()
-            val output = ssl.outputStream.buffered()
+            val command = "exec '" + SING_BOX + "' run -c '" + temp.absolutePath +
+                "' > '" + log.absolutePath + "' 2>&1"
+            process = ProcessBuilder("su", "-c", command)
+                .redirectErrorStream(true)
+                .start()
 
-            // Warm-up: establishes the TLS/WS/VLESS-backed HTTP session.
-            readHttpResponse(
-                input = input,
-                output = output,
-                host = host,
-                measure = false
-            )
-
-            val samples = mutableListOf<Long>()
-            repeat(3) {
-                val elapsed = readHttpResponse(
-                    input = input,
-                    output = output,
-                    host = host,
-                    measure = true
+            if (!waitForPort(port, timeoutMs)) {
+                return VlessWsResult(
+                    ip, null, false, "sing-box",
+                    log.readText().takeLast(1200).ifBlank { "本地 SOCKS 未启动" }
                 )
-                samples += elapsed
             }
 
-            ssl.close()
+            val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", port))
+            val start = System.nanoTime()
+            val connection = (URL("https://" + host + TEST_URL_PATH)
+                .openConnection(proxy) as HttpURLConnection)
 
-            val sorted = samples.sorted()
-            val median = sorted[sorted.size / 2]
+            connection.connectTimeout = timeoutMs
+            connection.readTimeout = timeoutMs
+            connection.instanceFollowRedirects = false
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Host", host)
+            connection.setRequestProperty("User-Agent", "BoxIP/real-vless-probe")
 
-            VlessWsResult(
-                ip = ip,
-                latencyMs = median,
-                success = true,
-                stage = "稳定真实代理流量",
-                error = "3次复用连接: " + samples.joinToString("/") + " ms"
-            )
+            val code = connection.responseCode
+            connection.inputStream.use { it.readBytes() }
+            connection.disconnect()
+
+            if (code !in 200..399) {
+                return VlessWsResult(ip, null, false, "真实代理", "HTTP " + code)
+            }
+
+            val elapsed = (System.nanoTime() - start) / 1_000_000L
+            return VlessWsResult(ip, elapsed, true, "真实 VLESS + WS", "真实请求 HTTP " + code)
         } catch (e: Exception) {
-            VlessWsResult(
-                ip = ip,
-                latencyMs = null,
-                success = false,
-                stage = "稳定真实代理流量",
-                error = e.javaClass.simpleName +
-                    if (!e.message.isNullOrBlank()) ": " + e.message else ""
-            )
+            val logText = runCatching { log.readText().takeLast(800) }.getOrDefault("")
+            val detail = e.javaClass.simpleName +
+                if (!e.message.isNullOrBlank()) ": " + e.message else "" +
+                if (logText.isNotBlank()) " | " + logText else ""
+            return VlessWsResult(ip, null, false, "真实 VLESS + WS", detail)
+        } finally {
+            runCatching { process?.destroy() }
+            runCatching { process?.waitFor(500, TimeUnit.MILLISECONDS) }
+            runCatching { process?.destroyForcibly() }
+            runCatching { temp.delete() }
+            runCatching { log.delete() }
         }
     }
 
-    private fun readHttpResponse(
-        input: java.io.BufferedInputStream,
-        output: java.io.BufferedOutputStream,
-        host: String,
-        measure: Boolean
-    ): Long {
-        val start = if (measure) System.nanoTime() else 0L
-
-        output.write(
-            ("GET " + TEST_PATH + " HTTP/1.1\\r\\n" +
-                "Host: " + host + "\\r\\n" +
-                "Connection: keep-alive\\r\\n" +
-                "Accept: */*\\r\\n" +
-                "User-Agent: BoxIP-Probe/1.0\\r\\n" +
-                "\\r\\n").toByteArray(Charsets.US_ASCII)
-        )
-        output.flush()
-
-        val statusLine = readLine(input)
-        val statusParts = statusLine.split(" ", limit = 3)
-        if (statusParts.size < 2) {
-            throw java.io.IOException("invalid HTTP status")
-        }
-        val code = statusParts[1].toIntOrNull()
-            ?: throw java.io.IOException("invalid HTTP status code")
-
-        val headers = mutableMapOf<String, String>()
-        while (true) {
-            val line = readLine(input)
-            if (line.isEmpty()) break
-            val colon = line.indexOf(':')
-            if (colon > 0) {
-                headers[line.substring(0, colon).trim().lowercase()] =
-                    line.substring(colon + 1).trim()
-            }
-        }
-
-        val transferEncoding = headers["transfer-encoding"]?.lowercase()
-        val contentLength = headers["content-length"]?.toLongOrNull()
-
-        when {
-            transferEncoding?.contains("chunked") == true -> readChunkedBody(input)
-            contentLength != null -> readExactly(input, contentLength)
-            else -> {
-                // A keep-alive response should normally provide a length.
-                // If it doesn't, don't wait for a connection close.
-                throw java.io.IOException("HTTP response has no reusable body length")
-            }
-        }
-
-        if (code !in 200..399) {
-            throw java.io.IOException("HTTP $code")
-        }
-
-        return if (measure) {
-            (System.nanoTime() - start) / 1_000_000L
-        } else {
-            0L
-        }
-    }
-
-    private fun readLine(input: java.io.BufferedInputStream): String {
-        val bytes = java.io.ByteArrayOutputStream()
-        while (true) {
-            val b = input.read()
-            if (b < 0) throw java.io.EOFException("connection closed")
-            if (b == 10) break
-            if (b != 13) bytes.write(b)
-        }
-        return bytes.toString(Charsets.US_ASCII.name())
-    }
-
-    private fun readExactly(
-        input: java.io.BufferedInputStream,
-        length: Long
-    ) {
-        var remaining = length
-        val buffer = ByteArray(8192)
-        while (remaining > 0) {
-            val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-            if (read < 0) throw java.io.EOFException("response body truncated")
-            remaining -= read
-        }
-    }
-
-    private fun readChunkedBody(input: java.io.BufferedInputStream) {
-        while (true) {
-            val sizeLine = readLine(input)
-            val size = sizeLine.substringBefore(';').trim().toLong(16)
-            if (size == 0L) {
-                while (true) {
-                    if (readLine(input).isEmpty()) break
-                }
-                return
-            }
-            readExactly(input, size)
-            val cr = input.read()
-            val lf = input.read()
-            if (cr != 13 || lf != 10) {
-                throw java.io.IOException("invalid chunk terminator")
-            }
-        }
+    private fun splitPath(path: String, fallbackEarlyData: Int?): Pair<String, Int?> {
+        val normalized = if (path.startsWith("/")) path else "/" + path
+        val early = parseEarlyData(normalized) ?: fallbackEarlyData
+        return normalized.substringBefore('?') to early
     }
 
     private fun buildConfig(
-        ips: List<String>,
+        ip: String,
         host: String,
-        path: String,
-        earlyData: Int,
-        uuid: String,
+        profile: Profile,
+        wsPath: String,
+        earlyData: Int?,
         interfaceName: String?,
-        ports: Map<Int, Int>
+        listenPort: Int
     ): String {
-        val inbounds = JSONArray()
-        val outbounds = JSONArray()
-        val rules = JSONArray()
+        val root = JSONObject()
+        root.put("log", JSONObject().apply { put("level", "error") })
+        root.put("inbounds", JSONArray().put(JSONObject().apply {
+            put("type", "mixed")
+            put("tag", "boxip-in")
+            put("listen", "127.0.0.1")
+            put("listen_port", listenPort)
+        }))
 
-        ips.forEachIndexed { index, ip ->
-            val inboundTag = "probe-in-" + index
-            val outboundTag = "probe-out-" + index
+        root.put("outbounds", JSONArray().put(JSONObject().apply {
+            put("type", "vless")
+            put("tag", "boxip-vless")
+            put("server", ip)
+            put("server_port", profile.serverPort)
+            put("uuid", profile.uuid)
 
-            val inbound = JSONObject()
-                .put("type", "mixed")
-                .put("tag", inboundTag)
-                .put("listen", "127.0.0.1")
-                .put("listen_port", ports.getValue(index))
+            if (!interfaceName.isNullOrBlank()) put("bind_interface", interfaceName)
 
-            val transport = JSONObject()
-                .put("type", "ws")
-                .put("path", path)
-                .put("headers", JSONObject().put("Host", host))
+            put("tls", JSONObject().apply {
+                put("enabled", true)
+                put("server_name", profile.tlsServerName.ifBlank { host })
+            })
 
-            if (earlyData > 0) {
-                transport
-                    .put("max_early_data", earlyData)
-                    .put("early_data_header_name", "Sec-WebSocket-Protocol")
-            }
-
-            val tls = JSONObject()
-                .put("enabled", true)
-                .put("server_name", host)
-
-            val vless = JSONObject()
-                .put("type", "vless")
-                .put("tag", outboundTag)
-                .put("server", ip)
-                .put("server_port", 443)
-                .put("uuid", uuid)
-                .put("tls", tls)
-                .put("transport", transport)
-                .put("packet_encoding", "xudp")
-
-            if (!interfaceName.isNullOrBlank()) {
-                vless.put("bind_interface", interfaceName)
-            }
-
-            inbounds.put(inbound)
-            outbounds.put(vless)
-
-            rules.put(
-                JSONObject()
-                    .put("inbound", JSONArray().put(inboundTag))
-                    .put("action", "route")
-                    .put("outbound", outboundTag)
-            )
-        }
-
-        return JSONObject()
-            .put("log", JSONObject().put("level", "error"))
-            .put("inbounds", inbounds)
-            .put("outbounds", outbounds)
-            .put(
-                "route",
-                JSONObject()
-                    .put("rules", rules)
-                    .put("final", outbounds.getJSONObject(0).getString("tag"))
-            )
-            .toString()
-    }
-
-    private fun splitPath(raw: String): Pair<String, Int> {
-        val normalized = if (raw.startsWith("/")) raw else "/" + raw
-        val question = normalized.indexOf('?')
-        if (question < 0) return normalized to 2560
-
-        val path = normalized.substring(0, question).ifEmpty { "/" }
-        val query = normalized.substring(question + 1)
-        val ed = query.split('&')
-            .asSequence()
-            .mapNotNull {
-                val parts = it.split('=', limit = 2)
-                if (parts.size == 2 && parts[0] == "ed") {
-                    parts[1].toIntOrNull()
-                } else {
-                    null
+            put("transport", JSONObject().apply {
+                put("type", "ws")
+                put("path", wsPath)
+                put("headers", JSONObject().apply { put("Host", profile.wsHost.ifBlank { host }) })
+                if (earlyData != null && earlyData > 0) {
+                    put("max_early_data", earlyData)
+                    put("early_data_header_name", "Sec-WebSocket-Protocol")
                 }
-            }
-            .firstOrNull()
-            ?: 2560
+            })
+            put("packet_encoding", "xudp")
+        }))
 
-        return path to ed.coerceIn(0, 16384)
+        root.put("route", JSONObject().apply { put("final", "boxip-vless") })
+        return root.toString()
     }
 
-    private fun waitForProxies(
-        ports: Collection<Int>,
-        process: Process,
-        timeoutMs: Int
-    ): Boolean {
+    private fun waitForPort(port: Int, timeoutMs: Int): Boolean {
         val deadline = System.nanoTime() + timeoutMs * 1_000_000L
         while (System.nanoTime() < deadline) {
-            if (!process.isAlive) return false
-
-            var allReady = true
-            for (port in ports) {
-                try {
-                    Socket().use { socket ->
-                        socket.connect(InetSocketAddress("127.0.0.1", port), 150)
-                    }
-                } catch (_: Exception) {
-                    allReady = false
-                    break
-                }
+            try {
+                java.net.Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 150) }
+                return true
+            } catch (_: Exception) {
+                Thread.sleep(50)
             }
-
-            if (allReady) return true
-            Thread.sleep(50)
         }
         return false
-    }
-
-    private fun shellQuote(value: String): String {
-        return "'" + value.replace("'", "'\\''") + "'"
-    }
-
-    private fun readLog(file: File): String {
-        return runCatching {
-            if (file.exists()) file.readText().trim() else ""
-        }.getOrDefault("")
     }
 }
