@@ -480,6 +480,14 @@ class MainActivity : Activity() {
             )
         }
 
+        val genericSection = TextView(this).apply {
+            text = "通用测试"
+            setTextColor(getThemeColor(R.attr.boxTextPrimary))
+            textSize = 13f
+            setPadding(dp(4), dp(18), dp(4), dp(8))
+        }
+        resultTable.addView(genericSection)
+
         val columnWidths = contentColumnWidths(
             displayedResults.map { item ->
                 val scanResult = item.scanResult
@@ -850,6 +858,27 @@ class MainActivity : Activity() {
 
             resultTable.removeAllViews()
             resultTable.visibility = View.VISIBLE
+
+            // Show the real-domain verification first on restored results too,
+            // so the screen order is identical to a fresh scan.
+            if (restoredRealCandidates.isNotEmpty()) {
+                renderRestoredRealNodeResults(
+                    resultTable,
+                    restoredRealCandidates,
+                    restoredRealResults,
+                    restoredSelectedIp,
+                    restoredVlessResults
+                )
+            }
+
+            val genericSection = TextView(this).apply {
+                text = "通用测试"
+                setTextColor(getThemeColor(R.attr.boxTextPrimary))
+                textSize = 13f
+                setPadding(dp(4), dp(18), dp(4), dp(8))
+            }
+            resultTable.addView(genericSection)
+
             val columnWidths = contentColumnWidths(
                 restored.map { item ->
                     listOf(
@@ -889,16 +918,6 @@ class MainActivity : Activity() {
                         header = false,
                         columnWidths = columnWidths
                     )
-                )
-            }
-
-            if (restoredRealCandidates.isNotEmpty()) {
-                renderRestoredRealNodeResults(
-                    resultTable,
-                    restoredRealCandidates,
-                    restoredRealResults,
-                    restoredSelectedIp,
-                    restoredVlessResults
                 )
             }
         } catch (_: Exception) {
