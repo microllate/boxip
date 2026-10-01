@@ -1113,8 +1113,6 @@ class MainActivity : Activity() {
 
     private fun applySavedTheme() {
         when (currentThemeMode()) {
-private fun applySavedTheme() {
-        when (currentThemeMode()) {
             THEME_LIGHT -> setTheme(R.style.Theme_BoxIP_Light)
             THEME_DARK -> setTheme(R.style.Theme_BoxIP_Dark)
             else -> {
