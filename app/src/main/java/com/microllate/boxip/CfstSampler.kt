@@ -28,6 +28,7 @@ class CfstSampler(
     }
     private val prefs = context.getSharedPreferences("boxip_learning", Context.MODE_PRIVATE)
     private val historyKey = "history_$networkKey"
+    private val ipHistoryKey = "ip_history_$networkKey"
     private val fastestIpsKey = "fastest_ips_$networkKey"
     // Legacy single-IP keys, used only to migrate the previous implementation.
     private val legacyFastestIpKey = "fastest_ip_$networkKey"
@@ -95,7 +96,7 @@ class CfstSampler(
     fun getHistoricalFastestIps(): List<String> {
         val retained = linkedSetOf<String>()
 
-        // Current format: a JSON array of all retained IPs.
+        // Current retained list.
         prefs.getString(fastestIpsKey, null)?.let { raw ->
             try {
                 val array = JSONObject("{\"ips\":$raw}").getJSONArray("ips")
@@ -120,11 +121,48 @@ class CfstSampler(
             retained += legacyIp
         }
 
-        return retained.toList()
+        // Once an IP has enough observations, require at least 50% successful
+        // downloads and an average speed above 10 MB/s. This prevents a one-time
+        // fast IP from staying in the priority pool after repeated failures.
+        val ipHistory = loadIpHistory()
+        return retained.filter { ip ->
+            val stats = ipHistory[ip] ?: return@filter true
+            if (stats.observations < 3) {
+                true
+            } else {
+                val successRate = stats.successes.toDouble() / stats.observations
+                successRate >= 0.5 &&
+                    stats.avgSpeedMbps > RETAIN_FASTEST_MIN_SPEED_MBPS
+            }
+        }
     }
 
     fun record(observations: List<CfstLearningObservation>) {
         if (observations.isEmpty()) return
+
+        val ipHistory = loadIpHistory().toMutableMap()
+        val now = System.currentTimeMillis()
+
+        for (observation in observations) {
+            val old = ipHistory[observation.ip] ?: CfstIpHistory()
+            val count = old.observations + 1
+            val successes = old.successes + if (observation.success) 1 else 0
+            val speed = if (observation.success) observation.downloadSpeedMbps else 0.0
+            val avgSpeed = if (count == 1) {
+                speed
+            } else {
+                (old.avgSpeedMbps * old.observations + speed) / count
+            }
+
+            ipHistory[observation.ip] = CfstIpHistory(
+                observations = count,
+                successes = successes,
+                avgSpeedMbps = avgSpeed,
+                lastSpeedMbps = speed,
+                lastSeenMs = now
+            )
+        }
+        saveIpHistory(ipHistory)
 
         val history = loadHistory().toMutableMap()
         val now = System.currentTimeMillis()
@@ -212,6 +250,41 @@ class CfstSampler(
             if (target <= 0.0) return entries[index]
         }
         return entries.last()
+    }
+
+    private fun loadIpHistory(): MutableMap<String, CfstIpHistory> {
+        val result = mutableMapOf<String, CfstIpHistory>()
+        val raw = prefs.getString(ipHistoryKey, null) ?: return result
+        return try {
+            val root = JSONObject(raw)
+            for (key in root.keys()) {
+                val item = root.getJSONObject(key)
+                result[key] = CfstIpHistory(
+                    observations = item.optInt("observations", 0),
+                    successes = item.optInt("successes", 0),
+                    avgSpeedMbps = item.optDouble("avgSpeedMbps", 0.0),
+                    lastSpeedMbps = item.optDouble("lastSpeedMbps", 0.0),
+                    lastSeenMs = item.optLong("lastSeenMs", 0L)
+                )
+            }
+            result
+        } catch (_: Exception) {
+            mutableMapOf()
+        }
+    }
+
+    private fun saveIpHistory(history: Map<String, CfstIpHistory>) {
+        val root = JSONObject()
+        for ((ip, item) in history) {
+            root.put(ip, JSONObject().apply {
+                put("observations", item.observations)
+                put("successes", item.successes)
+                put("avgSpeedMbps", item.avgSpeedMbps)
+                put("lastSpeedMbps", item.lastSpeedMbps)
+                put("lastSeenMs", item.lastSeenMs)
+            })
+        }
+        prefs.edit().putString(ipHistoryKey, root.toString()).apply()
     }
 
     private fun loadHistory(): MutableMap<String, CfstSubnetHistory> {
@@ -313,6 +386,14 @@ class CfstSampler(
             value and 255
         ).joinToString(".")
     }
+
+    private data class CfstIpHistory(
+        val observations: Int = 0,
+        val successes: Int = 0,
+        val avgSpeedMbps: Double = 0.0,
+        val lastSpeedMbps: Double = 0.0,
+        val lastSeenMs: Long = 0L
+    )
 
     private data class CfstSubnetHistory(
         val observations: Int = 0,
