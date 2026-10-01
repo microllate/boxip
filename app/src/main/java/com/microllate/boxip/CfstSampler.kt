@@ -23,6 +23,9 @@ class CfstSampler(
     private val networkKey: String,
     private val config: CfstSampleConfig = CfstSampleConfig()
 ) {
+    companion object {
+        private const val RETAIN_FASTEST_MIN_SPEED_MBPS = 10.0
+    }
     private val prefs = context.getSharedPreferences("boxip_learning", Context.MODE_PRIVATE)
     private val historyKey = "history_$networkKey"
     private val fastestIpKey = "fastest_ip_$networkKey"
@@ -34,7 +37,7 @@ class CfstSampler(
 
         val uniqueCandidates = candidates.distinct().toMutableList()
 
-        // Always retest the last fastest IP for this physical network.
+        // Retest the last retained fast IP only when its saved speed was > 10 MB/s.
         // Add it before the size check so it is guaranteed to reach TCP scan.
         getHistoricalFastestIp()?.let { fastestIp ->
             if (fastestIp.startsWith("104.") && !uniqueCandidates.contains(fastestIp)) {
@@ -60,7 +63,7 @@ class CfstSampler(
         )
         val selected = LinkedHashSet<String>()
 
-        // Keep the historical fastest IP even if its /24 would otherwise
+        // Keep the retained fast IP even if its /24 would otherwise
         // lose the learned/random selection.
         getHistoricalFastestIp()?.let { fastestIp ->
             if (uniqueCandidates.contains(fastestIp)) {
@@ -88,7 +91,9 @@ class CfstSampler(
     }
 
     fun getHistoricalFastestIp(): String? {
-        return prefs.getString(fastestIpKey, null)?.takeIf { it.isNotBlank() }
+        val savedSpeed = prefs.getFloat(fastestSpeedKey, 0f).toDouble()
+        return prefs.getString(fastestIpKey, null)
+            ?.takeIf { it.isNotBlank() && savedSpeed > RETAIN_FASTEST_MIN_SPEED_MBPS }
     }
 
     fun record(observations: List<CfstLearningObservation>) {
@@ -131,9 +136,13 @@ class CfstSampler(
 
         saveHistory(history)
 
-        // Remember the fastest successful IP from the latest completed run.
+        // Retain a fast IP only when the latest run produced a result above 10 MB/s.
+        // If this run has no qualifying result, keep the previously retained IP.
         val bestObservation = observations
-            .filter { it.success && it.downloadSpeedMbps > 0.0 }
+            .filter {
+                it.success &&
+                    it.downloadSpeedMbps > RETAIN_FASTEST_MIN_SPEED_MBPS
+            }
             .maxByOrNull { it.downloadSpeedMbps }
 
         if (bestObservation != null) {
