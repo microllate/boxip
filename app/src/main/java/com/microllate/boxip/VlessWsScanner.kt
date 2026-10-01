@@ -44,7 +44,8 @@ class VlessWsScanner(
         ips: List<String>,
         host: String,
         path: String,
-        uuid: String
+        uuid: String,
+        interfaceName: String? = null
     ): List<VlessWsResult> {
         if (ips.isEmpty()) return emptyList()
 
@@ -74,6 +75,7 @@ class VlessWsScanner(
         host: String,
         rawPath: String,
         uuid: String,
+        interfaceName: String?,
         port: Int
     ): VlessWsResult {
         val startNs = System.nanoTime()
@@ -103,6 +105,7 @@ class VlessWsScanner(
                     path = pathParts.first,
                     earlyData = pathParts.second,
                     uuid = uuid,
+                    interfaceName = interfaceName,
                     port = port
                 )
             )
@@ -185,6 +188,7 @@ class VlessWsScanner(
         path: String,
         earlyData: Int,
         uuid: String,
+        interfaceName: String?,
         port: Int
     ): String {
         val transport = JSONObject()
