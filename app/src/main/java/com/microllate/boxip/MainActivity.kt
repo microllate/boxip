@@ -342,7 +342,7 @@ class MainActivity : Activity() {
                     ip = item.getString("ip"),
                     loss = item.optDouble("loss", 0.0),
                     latencyMs = item.optLong("latency", -1L),
-                    success = item.optBoolean("success", true),
+                    success = item.has("tcpMs") && item.optBoolean("success", false),
                     tcpMs = item.optLong("tcpMs", -1L),
                     tlsMs = item.optLong("tlsMs", -1L),
                     ttfbMs = item.optLong("ttfbMs", -1L),
