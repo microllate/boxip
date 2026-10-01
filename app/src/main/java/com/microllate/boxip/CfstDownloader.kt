@@ -132,7 +132,7 @@ class CfstDownloader(
             // as the entry-quality metric.
             downloadSpeedMbps = 0.0,
             durationMs = elapsedMs,
-            pop = (lastPop ?: successfulProbe.pop)?.uppercase(Locale.US)
+            pop = lastPop?.uppercase(Locale.US)
         )
     }
 
