@@ -179,25 +179,28 @@ class MainActivity : Activity() {
                         }
                     )
 
-                    val successfulResults = downloadCandidates.mapNotNull { scanResult ->
-                        resultByIp[scanResult.ip]?.let { downloadResult ->
-                            scanResult to downloadResult
+                    val displayedResults = downloadCandidates
+                        .map { scanResult ->
+                            DownloadDisplayResult(scanResult, resultByIp[scanResult.ip])
                         }
-                    }.sortedByDescending { it.second.downloadSpeedMbps }
+                        .sortedWith(
+                            compareBy<DownloadDisplayResult> { it.downloadResult == null }
+                                .thenByDescending { it.downloadResult?.downloadSpeedMbps ?: 0.0 }
+                        )
 
                     runOnUiThread {
                         downloadValue.text = downloadResults.size.toString()
                         statusText.text = "测速完成 · 已按下载速度排序"
-                        resultText.visibility = if (successfulResults.isEmpty()) View.VISIBLE else View.GONE
-                        resultText.text = "没有成功的下载测速结果。"
+                        resultText.visibility = if (displayedResults.isEmpty()) View.VISIBLE else View.GONE
+                        resultText.text = "没有下载测速候选结果。"
 
-                        renderResults(resultTable, successfulResults)
+                        renderResults(resultTable, displayedResults)
                         saveLastResults(
                             ranges.ipv4.size,
                             candidates.size,
                             results.size,
                             downloadResults.size,
-                            successfulResults
+                            displayedResults
                         )
 
                         startButton.isEnabled = true
@@ -215,21 +218,30 @@ class MainActivity : Activity() {
         }
     }
 
+    private data class DownloadDisplayResult(
+        val scanResult: CfstScanResult,
+        val downloadResult: CfstDownloadResult?
+    )
+
     private fun renderResults(
         resultTable: LinearLayout,
-        successfulResults: List<Pair<CfstScanResult, CfstDownloadResult>>
+        displayedResults: List<DownloadDisplayResult>
     ) {
         resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
 
         val columnWidths = contentColumnWidths(
-            successfulResults.map { (scanResult, downloadResult) ->
+            displayedResults.map { item ->
+                val scanResult = item.scanResult
+                val downloadResult = item.downloadResult
                 listOf(
                     scanResult.ip,
                     String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
                     (scanResult.latencyMs?.toString() ?: "-") + " ms",
-                    String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
-                    downloadResult.pop ?: "-"
+                    downloadResult?.let {
+                        String.format(Locale.US, "%.2f MB/s", it.downloadSpeedMbps)
+                    } ?: "失败",
+                    downloadResult?.pop ?: "-"
                 )
             }
         )
@@ -248,14 +260,18 @@ class MainActivity : Activity() {
             )
         )
 
-        successfulResults.forEach { (scanResult, downloadResult) ->
+        displayedResults.forEach { item ->
+            val scanResult = item.scanResult
+            val downloadResult = item.downloadResult
             resultTable.addView(
                 createResultRow(
                     scanResult.ip,
                     String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
                     (scanResult.latencyMs?.toString() ?: "-") + " ms",
-                    String.format(Locale.US, "%.2f MB/s", downloadResult.downloadSpeedMbps),
-                    downloadResult.pop ?: "-",
+                    downloadResult?.let {
+                        String.format(Locale.US, "%.2f MB/s", it.downloadSpeedMbps)
+                    } ?: "失败",
+                    downloadResult?.pop ?: "-",
                     header = false,
                     columnWidths = columnWidths
                 )
@@ -268,16 +284,19 @@ class MainActivity : Activity() {
         candidates: Int,
         tcp: Int,
         downloads: Int,
-        results: List<Pair<CfstScanResult, CfstDownloadResult>>
+        results: List<DownloadDisplayResult>
     ) {
         val array = JSONArray()
-        results.forEach { (scanResult, downloadResult) ->
+        results.forEach { item ->
+            val scanResult = item.scanResult
+            val downloadResult = item.downloadResult
             array.put(JSONObject().apply {
                 put("ip", scanResult.ip)
                 put("loss", scanResult.lossRate)
                 put("latency", scanResult.latencyMs ?: -1L)
-                put("speed", downloadResult.downloadSpeedMbps)
-                put("pop", downloadResult.pop ?: "")
+                put("success", downloadResult != null)
+                put("speed", downloadResult?.downloadSpeedMbps ?: 0.0)
+                put("pop", downloadResult?.pop ?: "")
             })
         }
 
@@ -314,6 +333,7 @@ class MainActivity : Activity() {
                     ip = item.getString("ip"),
                     loss = item.optDouble("loss", 0.0),
                     latencyMs = item.optLong("latency", -1L),
+                    success = item.optBoolean("success", true),
                     speed = item.optDouble("speed", 0.0),
                     pop = item.optString("pop", "").ifEmpty { "-" }
                 )
@@ -336,8 +356,8 @@ class MainActivity : Activity() {
                         item.ip,
                         String.format(Locale.US, "%.0f%%", item.loss * 100),
                         if (item.latencyMs >= 0) item.latencyMs.toString() + " ms" else "-",
-                        String.format(Locale.US, "%.2f MB/s", item.speed),
-                        item.pop
+                        if (item.success) String.format(Locale.US, "%.2f MB/s", item.speed) else "失败",
+                        if (item.success) item.pop else "-"
                     )
                 }
             )
@@ -378,6 +398,7 @@ class MainActivity : Activity() {
         val ip: String,
         val loss: Double,
         val latencyMs: Long,
+        val success: Boolean,
         val speed: Double,
         val pop: String
     )
