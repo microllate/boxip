@@ -526,7 +526,7 @@ class MainActivity : Activity() {
                     verified?.pop ?: "-"
                 )
             }
-            val realNodeWidths = contentColumnWidths(realNodeRows, includeSelector = true)
+            val realNodeWidths = contentColumnWidths(realNodeRows)
             resultTable.addView(
                 createResultRow(
                     "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
@@ -844,7 +844,7 @@ class MainActivity : Activity() {
             )
         }
 
-        val widths = contentColumnWidths(rows, includeSelector = true)
+        val widths = contentColumnWidths(rows)
         resultTable.addView(
             createResultRow(
                 "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
@@ -919,39 +919,63 @@ class MainActivity : Activity() {
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
 
-        if (showSelector) {
-            val selector = TextView(this)
-            if (!header && onSelect != null) {
-                selector.tag = ip
-                selector.contentDescription = if (ip == selectedIp) {
-                    "当前使用 $ip"
-                } else {
-                    "选择 $ip"
-                }
-                selector.gravity = Gravity.CENTER
-                selector.setPadding(0, 0, 0, 0)
-                selector.background = createSelectorDrawable(ip == selectedIp)
-                selector.isClickable = true
-                selector.isFocusable = true
-                selector.setOnClickListener {
-                    onSelect(ip)
-                }
-            } else {
-                selector.setBackgroundColor(Color.TRANSPARENT)
-                selector.isClickable = false
-                selector.isFocusable = false
-            }
-
-            row.addView(
-                selector,
-                LinearLayout.LayoutParams(dp(28), dp(28)).apply {
-                    marginEnd = dp(4)
-                }
-            )
+        if (!header && showSelector && onSelect != null) {
+            row.isClickable = true
+            row.isFocusable = true
+            row.setOnClickListener { onSelect(ip) }
         }
 
         val values = listOf(ip, loss, latency, speed, stability, pop)
         values.forEachIndexed { index, value ->
+            if (index == 0 && !header && showSelector) {
+                val ipCell = LinearLayout(this)
+                ipCell.orientation = LinearLayout.HORIZONTAL
+                ipCell.gravity = Gravity.CENTER_VERTICAL
+
+                val selector = TextView(this).apply {
+                    contentDescription = if (ip == selectedIp) {
+                        "当前使用 $ip"
+                    } else {
+                        "可用入口 $ip"
+                    }
+                    background = createSelectorDrawable(ip == selectedIp)
+                }
+
+                ipCell.addView(
+                    selector,
+                    LinearLayout.LayoutParams(dp(16), dp(16)).apply {
+                        marginStart = dp(2)
+                        marginEnd = dp(7)
+                    }
+                )
+
+                val ipText = TextView(this).apply {
+                    text = value
+                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                    textSize = 12f
+                    gravity = Gravity.CENTER_VERTICAL
+                    includeFontPadding = false
+                    maxLines = 1
+                }
+
+                ipCell.addView(
+                    ipText,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                )
+
+                row.addView(
+                    ipCell,
+                    LinearLayout.LayoutParams(
+                        columnWidths[index],
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                )
+                return@forEachIndexed
+            }
+
             val cell = TextView(this)
             cell.text = value
             cell.setTextColor(
@@ -1098,10 +1122,7 @@ class MainActivity : Activity() {
      * Any unused screen width is then distributed evenly so short columns
      * do not become disproportionately narrow.
      */
-    private fun contentColumnWidths(
-        rows: List<List<String>>,
-        includeSelector: Boolean = false
-    ): IntArray {
+    private fun contentColumnWidths(rows: List<List<String>>): IntArray {
         val widths = IntArray(6)
 
         rows.forEach { row ->
@@ -1115,8 +1136,7 @@ class MainActivity : Activity() {
         }
 
         // Every row now reserves a 28dp selection column plus its margin.
-        val selectorWidth = if (includeSelector) dp(32) else 0
-        val available = resources.displayMetrics.widthPixels - dp(68) - selectorWidth
+        val available = resources.displayMetrics.widthPixels - dp(68)
         val total = widths.sum()
 
         if (total < available) {
