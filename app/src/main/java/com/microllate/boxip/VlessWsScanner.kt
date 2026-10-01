@@ -153,48 +153,175 @@ class VlessWsScanner(
         port: Int
     ): VlessWsResult {
         return try {
+            /*
+             * Keep one SOCKS -> VLESS -> TLS -> WS connection alive.
+             * The first HTTP request is only a warm-up. The following three
+             * requests reuse the already-established proxy tunnel, so their
+             * median is a much better measure of steady-state performance.
+             */
             val proxy = Proxy(
                 Proxy.Type.SOCKS,
                 InetSocketAddress("127.0.0.1", port)
             )
-            val testUrl = URL("https://" + host + TEST_PATH)
-            val connection = testUrl.openConnection(proxy) as HttpsURLConnection
-            connection.connectTimeout = timeoutMs
-            connection.readTimeout = timeoutMs
-            connection.instanceFollowRedirects = false
-            connection.useCaches = false
+            val tunnel = Socket(proxy)
+            tunnel.connect(InetSocketAddress.createUnresolved(host, 443), timeoutMs)
+            tunnel.soTimeout = timeoutMs
 
-            val requestStart = System.nanoTime()
-            val code = connection.responseCode
-            val elapsed = (System.nanoTime() - requestStart) / 1_000_000L
-            connection.disconnect()
+            val sslFactory = javax.net.ssl.SSLContext.getDefault().socketFactory
+            val ssl = sslFactory.createSocket(tunnel, host, 443, true) as javax.net.ssl.SSLSocket
+            ssl.soTimeout = timeoutMs
+            val params = ssl.sslParameters
+            params.serverNames = listOf(javax.net.ssl.SNIHostName(host))
+            ssl.sslParameters = params
+            ssl.startHandshake()
 
-            if (code in 200..399) {
-                VlessWsResult(
-                    ip = ip,
-                    latencyMs = elapsed,
-                    success = true,
-                    stage = "真实代理流量",
-                    error = "HTTP " + code
+            val input = ssl.inputStream.buffered()
+            val output = ssl.outputStream.buffered()
+
+            // Warm-up: establishes the TLS/WS/VLESS-backed HTTP session.
+            readHttpResponse(
+                input = input,
+                output = output,
+                host = host,
+                measure = false
+            )
+
+            val samples = mutableListOf<Long>()
+            repeat(3) {
+                val elapsed = readHttpResponse(
+                    input = input,
+                    output = output,
+                    host = host,
+                    measure = true
                 )
-            } else {
-                VlessWsResult(
-                    ip = ip,
-                    latencyMs = null,
-                    success = false,
-                    stage = "真实代理流量",
-                    error = "HTTP " + code
-                )
+                samples += elapsed
             }
+
+            ssl.close()
+
+            val sorted = samples.sorted()
+            val median = sorted[sorted.size / 2]
+
+            VlessWsResult(
+                ip = ip,
+                latencyMs = median,
+                success = true,
+                stage = "稳定真实代理流量",
+                error = "3次复用连接: " + samples.joinToString("/") + " ms"
+            )
         } catch (e: Exception) {
             VlessWsResult(
                 ip = ip,
                 latencyMs = null,
                 success = false,
-                stage = "真实代理流量",
+                stage = "稳定真实代理流量",
                 error = e.javaClass.simpleName +
                     if (!e.message.isNullOrBlank()) ": " + e.message else ""
             )
+        }
+    }
+
+    private fun readHttpResponse(
+        input: java.io.BufferedInputStream,
+        output: java.io.BufferedOutputStream,
+        host: String,
+        measure: Boolean
+    ): Long {
+        val start = if (measure) System.nanoTime() else 0L
+
+        output.write(
+            ("GET " + TEST_PATH + " HTTP/1.1\\r\\n" +
+                "Host: " + host + "\\r\\n" +
+                "Connection: keep-alive\\r\\n" +
+                "Accept: */*\\r\\n" +
+                "User-Agent: BoxIP-Probe/1.0\\r\\n" +
+                "\\r\\n").toByteArray(Charsets.US_ASCII)
+        )
+        output.flush()
+
+        val statusLine = readLine(input)
+        val statusParts = statusLine.split(" ", limit = 3)
+        if (statusParts.size < 2) {
+            throw java.io.IOException("invalid HTTP status")
+        }
+        val code = statusParts[1].toIntOrNull()
+            ?: throw java.io.IOException("invalid HTTP status code")
+
+        val headers = mutableMapOf<String, String>()
+        while (true) {
+            val line = readLine(input)
+            if (line.isEmpty()) break
+            val colon = line.indexOf(':')
+            if (colon > 0) {
+                headers[line.substring(0, colon).trim().lowercase()] =
+                    line.substring(colon + 1).trim()
+            }
+        }
+
+        val transferEncoding = headers["transfer-encoding"]?.lowercase()
+        val contentLength = headers["content-length"]?.toLongOrNull()
+
+        when {
+            transferEncoding?.contains("chunked") == true -> readChunkedBody(input)
+            contentLength != null -> readExactly(input, contentLength)
+            else -> {
+                // A keep-alive response should normally provide a length.
+                // If it doesn't, don't wait for a connection close.
+                throw java.io.IOException("HTTP response has no reusable body length")
+            }
+        }
+
+        if (code !in 200..399) {
+            throw java.io.IOException("HTTP $code")
+        }
+
+        return if (measure) {
+            (System.nanoTime() - start) / 1_000_000L
+        } else {
+            0L
+        }
+    }
+
+    private fun readLine(input: java.io.BufferedInputStream): String {
+        val bytes = java.io.ByteArrayOutputStream()
+        while (true) {
+            val b = input.read()
+            if (b < 0) throw java.io.EOFException("connection closed")
+            if (b == 10) break
+            if (b != 13) bytes.write(b)
+        }
+        return bytes.toString(Charsets.US_ASCII.name())
+    }
+
+    private fun readExactly(
+        input: java.io.BufferedInputStream,
+        length: Long
+    ) {
+        var remaining = length
+        val buffer = ByteArray(8192)
+        while (remaining > 0) {
+            val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+            if (read < 0) throw java.io.EOFException("response body truncated")
+            remaining -= read
+        }
+    }
+
+    private fun readChunkedBody(input: java.io.BufferedInputStream) {
+        while (true) {
+            val sizeLine = readLine(input)
+            val size = sizeLine.substringBefore(';').trim().toLong(16)
+            if (size == 0L) {
+                while (true) {
+                    if (readLine(input).isEmpty()) break
+                }
+                return
+            }
+            readExactly(input, size)
+            val cr = input.read()
+            val lf = input.read()
+            if (cr != 13 || lf != 10) {
+                throw java.io.IOException("invalid chunk terminator")
+            }
         }
     }
 
