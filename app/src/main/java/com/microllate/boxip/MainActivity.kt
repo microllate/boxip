@@ -63,7 +63,7 @@ class MainActivity : Activity() {
 
         // Start BoxIP's loopback-only DNS server for the MVP.
         // It only listens on 127.0.0.1:1053 and does not affect system DNS.
-        BoxIpDnsServer.start()
+        BoxIpDnsServer.start(this)
 
         val rootLayout = findViewById<View>(R.id.rootLayout)
         rootLayout.setOnApplyWindowInsetsListener { view, insets ->
