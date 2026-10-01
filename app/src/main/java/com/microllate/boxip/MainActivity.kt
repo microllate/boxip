@@ -1118,13 +1118,12 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Give each column a weight based on the widest text currently shown.
-     * This keeps the columns aligned across rows while avoiding fixed 20% columns.
-     */
-    /**
      * Calculate one shared pixel width per column from the widest cell content.
-     * Any unused screen width is then distributed evenly so short columns
-     * do not become disproportionately narrow.
+     *
+     * The IP column has a hard minimum wide enough for a full IPv4 address
+     * (111.111.111.111) plus the status dot and its margins. The remaining
+     * width is distributed across the other five columns so the IP is never
+     * truncated just because the other columns need more room.
      */
     private fun contentColumnWidths(rows: List<List<String>>): IntArray {
         val widths = IntArray(6)
@@ -1139,25 +1138,49 @@ class MainActivity : Activity() {
             }
         }
 
-        // Every row now reserves a 28dp selection column plus its margin.
+        // The first column must fit a complete IPv4 address plus the selector.
+        val ipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = sp(12f)
+        }
+        val minIpWidth =
+            ipPaint.measureText("111.111.111.111").toInt() +
+                dp(14 + 2 + 6 + 16)
+        widths[0] = maxOf(widths[0], minIpWidth)
+
+        // ResultTable is inside the root padding and ScrollView padding.
         val available = resources.displayMetrics.widthPixels - dp(68)
         val total = widths.sum()
 
         if (total < available) {
+            // Keep the IP minimum intact; distribute spare width to the
+            // remaining columns.
             val extra = available - total
-            val each = extra / widths.size
-            var remainder = extra % widths.size
-            for (index in widths.indices) {
+            val columns = widths.indices.drop(1)
+            val each = extra / columns.size
+            var remainder = extra % columns.size
+            for (index in columns) {
                 widths[index] += each
                 if (remainder > 0) {
                     widths[index]++
                     remainder--
                 }
             }
-        } else if (total > available && total > 0) {
-            val scale = available.toFloat() / total.toFloat()
-            for (index in widths.indices) {
-                widths[index] = maxOf(dp(36), (widths[index] * scale).toInt())
+        } else if (total > available) {
+            // Never shrink the IP column. Compress only the other columns.
+            val otherTotal = widths.drop(1).sum()
+            val targetOther = maxOf(
+                0,
+                available - widths[0]
+            )
+
+            if (otherTotal > targetOther && otherTotal > 0) {
+                val scale = targetOther.toFloat() / otherTotal.toFloat()
+                for (index in 1 until widths.size) {
+                    widths[index] = maxOf(
+                        dp(36),
+                        (widths[index] * scale).toInt()
+                    )
+                }
             }
         }
 
