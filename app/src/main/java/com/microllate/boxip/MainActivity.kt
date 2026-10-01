@@ -992,8 +992,17 @@ class MainActivity : Activity() {
                 )
             )
             cell.textSize = if (header) 13f else 12f
-            cell.gravity = Gravity.CENTER
-            cell.setPadding(dp(4), dp(8), dp(4), dp(8))
+            cell.gravity = when {
+                index in 1..4 -> Gravity.CENTER_VERTICAL or Gravity.END
+                index == 5 -> Gravity.CENTER
+                else -> Gravity.CENTER_VERTICAL
+            }
+            cell.setPadding(
+                dp(if (index in 1..4) 2 else 4),
+                dp(8),
+                dp(if (index in 1..4) 6 else 4),
+                dp(8)
+            )
             cell.includeFontPadding = false
             cell.maxLines = 1
 
@@ -1118,12 +1127,9 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Calculate one shared pixel width per column from the widest cell content.
-     *
-     * The IP column has a hard minimum wide enough for a full IPv4 address
-     * (111.111.111.111) plus the status dot and its margins. The remaining
-     * width is distributed across the other five columns so the IP is never
-     * truncated just because the other columns need more room.
+     * Keep the IPv4 column wide enough for a complete address, then give the
+     * remaining columns only the space they actually need. Numeric columns
+     * are right-aligned so their values line up cleanly.
      */
     private fun contentColumnWidths(rows: List<List<String>>): IntArray {
         val widths = IntArray(6)
@@ -1134,27 +1140,30 @@ class MainActivity : Activity() {
                     textSize = sp(if (index == 0 && value != "IP") 12f else 13f)
                 }
                 val measured = paint.measureText(value).toInt()
-                widths[index] = maxOf(widths[index], measured + dp(16))
+                val horizontalPadding = if (index in 1..4) dp(10) else dp(16)
+                widths[index] = maxOf(
+                    widths[index],
+                    measured + horizontalPadding
+                )
             }
         }
 
-        // The first column must fit a complete IPv4 address plus the selector.
+        // IP must always fit a complete IPv4 address plus the status dot.
         val ipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = sp(12f)
         }
-        val minIpWidth =
-            ipPaint.measureText("111.111.111.111").toInt() +
-                dp(14 + 2 + 6 + 16)
-        widths[0] = maxOf(widths[0], minIpWidth)
+        val ipContentWidth = ipPaint.measureText("111.111.111.111").toInt()
+        widths[0] = maxOf(
+            widths[0],
+            ipContentWidth + dp(14 + 2 + 6 + 4)
+        )
 
-        // ResultTable is inside the root padding and ScrollView padding.
+        // Available width inside ScrollView/resultContainer.
         val available = resources.displayMetrics.widthPixels - dp(68)
-        val total = widths.sum()
 
-        if (total < available) {
-            // Keep the IP minimum intact; distribute spare width to the
-            // remaining columns.
-            val extra = available - total
+        if (widths.sum() < available) {
+            // Spare width is useful mainly for readability of the metric columns.
+            val extra = available - widths.sum()
             val columns = widths.indices.drop(1)
             val each = extra / columns.size
             var remainder = extra % columns.size
@@ -1165,19 +1174,17 @@ class MainActivity : Activity() {
                     remainder--
                 }
             }
-        } else if (total > available) {
-            // Never shrink the IP column. Compress only the other columns.
+        } else {
+            // Never shrink the IP column below the full IPv4 width.
+            // Compress only the five metric columns proportionally.
             val otherTotal = widths.drop(1).sum()
-            val targetOther = maxOf(
-                0,
-                available - widths[0]
-            )
+            val targetOther = maxOf(0, available - widths[0])
 
             if (otherTotal > targetOther && otherTotal > 0) {
                 val scale = targetOther.toFloat() / otherTotal.toFloat()
                 for (index in 1 until widths.size) {
                     widths[index] = maxOf(
-                        dp(36),
+                        dp(30),
                         (widths[index] * scale).toInt()
                     )
                 }
