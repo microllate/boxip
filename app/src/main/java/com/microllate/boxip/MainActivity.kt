@@ -162,13 +162,13 @@ class MainActivity : Activity() {
 
                     runOnUiThread {
                         tcpValue.text = results.size.toString()
-                        statusText.text = "第二阶段 · 下载测速"
-                        resultText.text = "TCPing 完成，正在测试前 ${downloadCandidates.size} 个 IP…"
+                        statusText.text = "第二阶段 · Cloudflare 入口质量"
+                        resultText.text = "TCPing 完成，正在测试 ${downloadCandidates.size} 个 IP 的 TCP / TLS / TTFB / 30 秒稳定性…"
                     }
 
                     val downloadResults = CfstDownloader(
                         network = physicalNetwork,
-                        timeoutMs = 10_000,
+                        timeoutMs = 30_000,
                         connectTimeoutMs = 3_000
                     ).download(downloadCandidates.map { it.ip })
 
@@ -197,7 +197,7 @@ class MainActivity : Activity() {
 
                     runOnUiThread {
                         downloadValue.text = downloadResults.size.toString()
-                        statusText.text = "测速完成 · 已按下载速度排序"
+                        statusText.text = "测速完成 · 按入口连接质量排序"
                         resultText.visibility = if (displayedResults.isEmpty()) View.VISIBLE else View.GONE
                         resultText.text = "没有下载测速候选结果。"
 
@@ -243,18 +243,17 @@ class MainActivity : Activity() {
                 val downloadResult = item.downloadResult
                 listOf(
                     scanResult.ip,
-                    String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
-                    (scanResult.latencyMs?.toString() ?: "-") + " ms",
-                    downloadResult?.let {
-                        String.format(Locale.US, "%.2f MB/s", it.downloadSpeedMbps)
-                    } ?: "失败",
+                    downloadResult?.let { "${it.tcpConnectMs} ms" } ?: "失败",
+                    downloadResult?.let { "${it.tlsHandshakeMs} ms" } ?: "-",
+                    downloadResult?.let { "${it.ttfbMs} ms" } ?: "-",
+                    downloadResult?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                     downloadResult?.pop ?: "-"
                 )
             }
         )
 
         resultTable.addView(
-            createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true, columnWidths = columnWidths)
+            createResultRow("IP", "TCP", "TLS", "TTFB", "稳定性", "区域", header = true, columnWidths = columnWidths)
         )
 
         val divider = View(this)
@@ -273,11 +272,10 @@ class MainActivity : Activity() {
             resultTable.addView(
                 createResultRow(
                     scanResult.ip,
-                    String.format(Locale.US, "%.0f%%", scanResult.lossRate * 100),
-                    (scanResult.latencyMs?.toString() ?: "-") + " ms",
-                    downloadResult?.let {
-                        String.format(Locale.US, "%.2f MB/s", it.downloadSpeedMbps)
-                    } ?: "失败",
+                    downloadResult?.let { "${it.tcpConnectMs} ms" } ?: "失败",
+                    downloadResult?.let { "${it.tlsHandshakeMs} ms" } ?: "-",
+                    downloadResult?.let { "${it.ttfbMs} ms" } ?: "-",
+                    downloadResult?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
                     downloadResult?.pop ?: "-",
                     header = false,
                     columnWidths = columnWidths
@@ -302,6 +300,10 @@ class MainActivity : Activity() {
                 put("loss", scanResult.lossRate)
                 put("latency", scanResult.latencyMs ?: -1L)
                 put("success", downloadResult != null)
+                put("tcpMs", downloadResult?.tcpConnectMs ?: -1L)
+                put("tlsMs", downloadResult?.tlsHandshakeMs ?: -1L)
+                put("ttfbMs", downloadResult?.ttfbMs ?: -1L)
+                put("stability", downloadResult?.stabilityPercent ?: 0.0)
                 put("speed", downloadResult?.downloadSpeedMbps ?: 0.0)
                 put("pop", downloadResult?.pop ?: "")
             })
@@ -341,6 +343,10 @@ class MainActivity : Activity() {
                     loss = item.optDouble("loss", 0.0),
                     latencyMs = item.optLong("latency", -1L),
                     success = item.optBoolean("success", true),
+                    tcpMs = item.optLong("tcpMs", -1L),
+                    tlsMs = item.optLong("tlsMs", -1L),
+                    ttfbMs = item.optLong("ttfbMs", -1L),
+                    stability = item.optDouble("stability", 0.0),
                     speed = item.optDouble("speed", 0.0),
                     pop = item.optString("pop", "").ifEmpty { "-" }
                 )
@@ -361,16 +367,17 @@ class MainActivity : Activity() {
                 restored.map { item ->
                     listOf(
                         item.ip,
-                        String.format(Locale.US, "%.0f%%", item.loss * 100),
-                        if (item.latencyMs >= 0) item.latencyMs.toString() + " ms" else "-",
-                        if (item.success) String.format(Locale.US, "%.2f MB/s", item.speed) else "失败",
+                        if (item.success) "${item.tcpMs} ms" else "失败",
+                        if (item.success) "${item.tlsMs} ms" else "-",
+                        if (item.success) "${item.ttfbMs} ms" else "-",
+                        if (item.success) String.format(Locale.US, "%.0f%%", item.stability) else "-",
                         if (item.success) item.pop else "-"
                     )
                 }
             )
 
             resultTable.addView(
-                createResultRow("IP", "丢包", "延迟", "速度", "区域", header = true, columnWidths = columnWidths)
+                createResultRow("IP", "TCP", "TLS", "TTFB", "稳定性", "区域", header = true, columnWidths = columnWidths)
             )
 
             val divider = View(this)
@@ -387,10 +394,11 @@ class MainActivity : Activity() {
                 resultTable.addView(
                     createResultRow(
                         item.ip,
-                        String.format(Locale.US, "%.0f%%", item.loss),
-                        if (item.latencyMs >= 0) item.latencyMs.toString() + " ms" else "-",
-                        String.format(Locale.US, "%.2f MB/s", item.speed),
-                        item.pop,
+                        if (item.success) "${item.tcpMs} ms" else "失败",
+                        if (item.success) "${item.tlsMs} ms" else "-",
+                        if (item.success) "${item.ttfbMs} ms" else "-",
+                        if (item.success) String.format(Locale.US, "%.0f%%", item.stability) else "-",
+                        if (item.success) item.pop else "-",
                         header = false,
                         columnWidths = columnWidths
                     )
@@ -406,6 +414,10 @@ class MainActivity : Activity() {
         val loss: Double,
         val latencyMs: Long,
         val success: Boolean,
+        val tcpMs: Long,
+        val tlsMs: Long,
+        val ttfbMs: Long,
+        val stability: Double,
         val speed: Double,
         val pop: String
     )
@@ -415,6 +427,7 @@ class MainActivity : Activity() {
         loss: String,
         latency: String,
         speed: String,
+        stability: String,
         pop: String,
         header: Boolean,
         columnWidths: IntArray
@@ -423,7 +436,7 @@ class MainActivity : Activity() {
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
 
-        val values = listOf(ip, loss, latency, speed, pop)
+        val values = listOf(ip, loss, latency, speed, stability, pop)
         values.forEachIndexed { index, value ->
             val cell = TextView(this)
             cell.text = value
@@ -460,7 +473,7 @@ class MainActivity : Activity() {
      * do not become disproportionately narrow.
      */
     private fun contentColumnWidths(rows: List<List<String>>): IntArray {
-        val widths = IntArray(5)
+        val widths = IntArray(6)
 
         rows.forEach { row ->
             row.forEachIndexed { index, value ->
