@@ -28,8 +28,10 @@ class CfstSampler(
     }
     private val prefs = context.getSharedPreferences("boxip_learning", Context.MODE_PRIVATE)
     private val historyKey = "history_$networkKey"
-    private val fastestIpKey = "fastest_ip_$networkKey"
-    private val fastestSpeedKey = "fastest_speed_$networkKey"
+    private val fastestIpsKey = "fastest_ips_$networkKey"
+    // Legacy single-IP keys, used only to migrate the previous implementation.
+    private val legacyFastestIpKey = "fastest_ip_$networkKey"
+    private val legacyFastestSpeedKey = "fastest_speed_$networkKey"
 
     fun sample(cidrs: List<String>): List<String> {
         val candidates = ArrayList<String>()
@@ -37,9 +39,9 @@ class CfstSampler(
 
         val uniqueCandidates = candidates.distinct().toMutableList()
 
-        // Retest the last retained fast IP only when its saved speed was > 10 MB/s.
-        // Add it before the size check so it is guaranteed to reach TCP scan.
-        getHistoricalFastestIp()?.let { fastestIp ->
+        // Retest every retained fast IP (>10 MB/s). Add them before the size check
+        // so retained IPs are guaranteed to reach TCP scan.
+        getHistoricalFastestIps().forEach { fastestIp ->
             if (fastestIp.startsWith("104.") && !uniqueCandidates.contains(fastestIp)) {
                 uniqueCandidates.add(fastestIp)
             }
@@ -63,10 +65,10 @@ class CfstSampler(
         )
         val selected = LinkedHashSet<String>()
 
-        // Keep the retained fast IP even if its /24 would otherwise
+        // Keep every retained fast IP even if its /24 would otherwise
         // lose the learned/random selection.
-        getHistoricalFastestIp()?.let { fastestIp ->
-            if (uniqueCandidates.contains(fastestIp)) {
+        getHistoricalFastestIps().forEach { fastestIp ->
+            if (uniqueCandidates.contains(fastestIp) && selected.size < config.maxSamples) {
                 selected += fastestIp
             }
         }
@@ -90,10 +92,35 @@ class CfstSampler(
         return selected.toList()
     }
 
-    fun getHistoricalFastestIp(): String? {
-        val savedSpeed = prefs.getFloat(fastestSpeedKey, 0f).toDouble()
-        return prefs.getString(fastestIpKey, null)
-            ?.takeIf { it.isNotBlank() && savedSpeed > RETAIN_FASTEST_MIN_SPEED_MBPS }
+    fun getHistoricalFastestIps(): List<String> {
+        val retained = linkedSetOf<String>()
+
+        // Current format: a JSON array of all retained IPs.
+        prefs.getString(fastestIpsKey, null)?.let { raw ->
+            try {
+                val array = JSONObject("{\"ips\":$raw}").getJSONArray("ips")
+                for (index in 0 until array.length()) {
+                    val ip = array.optString(index)
+                    if (ip.isNotBlank() && ip.startsWith("104.")) {
+                        retained += ip
+                    }
+                }
+            } catch (_: Exception) {
+                // Ignore malformed retained-IP data.
+            }
+        }
+
+        // Migrate the previous single retained IP if it was above the threshold.
+        val legacyIp = prefs.getString(legacyFastestIpKey, null)
+        val legacySpeed = prefs.getFloat(legacyFastestSpeedKey, 0f).toDouble()
+        if (!legacyIp.isNullOrBlank() &&
+            legacyIp.startsWith("104.") &&
+            legacySpeed > RETAIN_FASTEST_MIN_SPEED_MBPS
+        ) {
+            retained += legacyIp
+        }
+
+        return retained.toList()
     }
 
     fun record(observations: List<CfstLearningObservation>) {
@@ -136,19 +163,26 @@ class CfstSampler(
 
         saveHistory(history)
 
-        // Retain a fast IP only when the latest run produced a result above 10 MB/s.
-        // If this run has no qualifying result, keep the previously retained IP.
-        val bestObservation = observations
+        // Retain every IP whose latest download speed was above 10 MB/s.
+        // If this run has no qualifying result, keep all previously retained IPs.
+        val qualifyingIps = observations
             .filter {
                 it.success &&
                     it.downloadSpeedMbps > RETAIN_FASTEST_MIN_SPEED_MBPS
             }
-            .maxByOrNull { it.downloadSpeedMbps }
+            .map { it.ip }
+            .filter { it.startsWith("104.") }
 
-        if (bestObservation != null) {
+        if (qualifyingIps.isNotEmpty()) {
+            val retained = linkedSetOf<String>()
+            retained += getHistoricalFastestIps()
+            retained += qualifyingIps
+
+            val array = org.json.JSONArray()
+            retained.forEach { array.put(it) }
+
             prefs.edit()
-                .putString(fastestIpKey, bestObservation.ip)
-                .putFloat(fastestSpeedKey, bestObservation.downloadSpeedMbps.toFloat())
+                .putString(fastestIpsKey, array.toString())
                 .apply()
         }
     }
