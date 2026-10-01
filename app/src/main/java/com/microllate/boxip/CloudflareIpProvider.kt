@@ -20,7 +20,11 @@ class CloudflareIpProvider {
         try {
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             val result = JSONObject(response).getJSONObject("result")
+            // For this region/network, only test Cloudflare IPv4 addresses in 104.x.x.x.
             val ipv4 = jsonArrayToList(result.getJSONArray("ipv4_cidrs"))
+                .filter { cidr ->
+                    cidr.substringBefore('.').toIntOrNull() == 104
+                }
 
             return CloudflareIpRanges(ipv4)
         } finally {
