@@ -280,6 +280,27 @@ class MainActivity : Activity() {
                             .thenBy { it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE }
                     )
 
+                    val realNodeCandidates = regionResults.take(10)
+                    val realNodeResults = if (realNodeCandidates.isEmpty()) {
+                        emptyList()
+                    } else {
+                        runOnUiThread {
+                            statusText.text = "第三阶段 · 真实节点域名验证"
+                            resultText.visibility = View.VISIBLE
+                            resultText.text = "仅验证 Top ${realNodeCandidates.size} 个入口，每个 IP 进行 2 次轻量 TLS / TTFB 探测…"
+                        }
+
+                        CfstDownloader(
+                            network = physicalNetwork,
+                            downloadUrl = "https://life.mozzarella.top/cdn-cgi/trace",
+                            observationMs = 10_000,
+                            probeIntervalMs = 5_000,
+                            connectTimeoutMs = 3_000,
+                            probeTimeoutMs = 3_000,
+                            concurrency = 2
+                        ).download(realNodeCandidates.map { it.ip })
+                    }
+
                     runOnUiThread {
                         downloadValue.text = regionResults.size.toString()
                         statusText.text = if (selectedRegion.pops.isEmpty()) {
@@ -288,13 +309,22 @@ class MainActivity : Activity() {
                             "测速完成 · ${selectedRegion.label}"
                         }
                         resultText.visibility = if (displayedResults.isEmpty()) View.VISIBLE else View.GONE
-                        resultText.text = if (selectedRegion.pops.isEmpty()) {
-                            "没有成功的入口质量测试结果。"
+                        resultText.text = if (displayedResults.isEmpty()) {
+                            if (selectedRegion.pops.isEmpty()) {
+                                "没有成功的入口质量测试结果。"
+                            } else {
+                                "当前网络下未测到 ${selectedRegion.label}，可切换为自动再测试。"
+                            }
                         } else {
-                            "当前网络下未测到 ${selectedRegion.label}，可切换为自动再测试。"
+                            ""
                         }
 
-                        renderResults(resultTable, displayedResults)
+                        renderResults(
+                            resultTable,
+                            displayedResults,
+                            realNodeCandidates,
+                            realNodeResults
+                        )
                         saveLastResults(
                             ranges.ipv4.size,
                             candidates.size,
@@ -327,7 +357,9 @@ class MainActivity : Activity() {
 
     private fun renderResults(
         resultTable: LinearLayout,
-        displayedResults: List<DownloadDisplayResult>
+        displayedResults: List<DownloadDisplayResult>,
+        realNodeCandidates: List<CfstDownloadResult> = emptyList(),
+        realNodeResults: List<CfstDownloadResult> = emptyList()
     ) {
         resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
@@ -376,6 +408,52 @@ class MainActivity : Activity() {
                     columnWidths = columnWidths
                 )
             )
+        }
+
+        if (realNodeCandidates.isNotEmpty()) {
+            val section = TextView(this).apply {
+                text = "真实节点域名验证 · life.mozzarella.top"
+                setTextColor(getThemeColor(R.attr.boxTextPrimary))
+                textSize = 13f
+                setPadding(dp(4), dp(18), dp(4), dp(8))
+            }
+            resultTable.addView(section)
+
+            val realNodeByIp = realNodeResults.associateBy { it.ip }
+            val realNodeRows = realNodeCandidates.map { result ->
+                val verified = realNodeByIp[result.ip]
+                listOf(
+                    result.ip,
+                    verified?.let { "${it.tcpConnectMs} ms" } ?: "失败",
+                    verified?.let { "${it.tlsHandshakeMs} ms" } ?: "-",
+                    verified?.let { "${it.ttfbMs} ms" } ?: "-",
+                    verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
+                    verified?.pop ?: "-"
+                )
+            }
+            val realNodeWidths = contentColumnWidths(realNodeRows)
+            resultTable.addView(
+                createResultRow(
+                    "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
+                    header = true,
+                    columnWidths = realNodeWidths
+                )
+            )
+            realNodeCandidates.forEach { result ->
+                val verified = realNodeByIp[result.ip]
+                resultTable.addView(
+                    createResultRow(
+                        result.ip,
+                        verified?.let { "${it.tcpConnectMs} ms" } ?: "失败",
+                        verified?.let { "${it.tlsHandshakeMs} ms" } ?: "-",
+                        verified?.let { "${it.ttfbMs} ms" } ?: "-",
+                        verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
+                        verified?.pop ?: "-",
+                        header = false,
+                        columnWidths = realNodeWidths
+                    )
+                )
+            }
         }
     }
 
