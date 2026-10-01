@@ -57,8 +57,8 @@ class CfstDownloader(
                 runCatching { future.get() }.getOrNull()
             }.sortedWith(
                 compareByDescending<CfstDownloadResult> { it.stabilityPercent }
-                    .thenBy { it.ttfbMs }
                     .thenBy { it.tlsHandshakeMs }
+                    .thenBy { it.ttfbMs }
                     .thenBy { it.tcpConnectMs }
             )
         } finally {
