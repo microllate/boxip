@@ -11,6 +11,7 @@ import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
+import java.util.concurrent.Executors
 
 data class CfstDownloadResult(
     val ip: String,
@@ -29,7 +30,8 @@ class CfstDownloader(
     private val observationMs: Int = 30_000,
     private val probeIntervalMs: Int = 5_000,
     private val connectTimeoutMs: Int = 3_000,
-    private val probeTimeoutMs: Int = 3_000
+    private val probeTimeoutMs: Int = 3_000,
+    private val concurrency: Int = 3
 ) {
     private data class ProbeResult(
         val tcpConnectMs: Long,
@@ -39,14 +41,28 @@ class CfstDownloader(
     )
 
     fun download(ips: List<String>): List<CfstDownloadResult> {
-        return ips.distinct().mapNotNull { ip ->
-            test(ip)
-        }.sortedWith(
-            compareByDescending<CfstDownloadResult> { it.stabilityPercent }
-                .thenBy { it.ttfbMs }
-                .thenBy { it.tlsHandshakeMs }
-                .thenBy { it.tcpConnectMs }
-        )
+        val distinctIps = ips.distinct()
+        if (distinctIps.isEmpty()) return emptyList()
+
+        val pool = Executors.newFixedThreadPool(concurrency.coerceIn(1, 8))
+        return try {
+            val futures = distinctIps.map { ip ->
+                pool.submit<CfstDownloadResult?> {
+                    runCatching { test(ip) }.getOrNull()
+                }
+            }
+
+            futures.mapNotNull { future ->
+                runCatching { future.get() }.getOrNull()
+            }.sortedWith(
+                compareByDescending<CfstDownloadResult> { it.stabilityPercent }
+                    .thenBy { it.ttfbMs }
+                    .thenBy { it.tlsHandshakeMs }
+                    .thenBy { it.tcpConnectMs }
+            )
+        } finally {
+            pool.shutdownNow()
+        }
     }
 
     private fun test(ip: String): CfstDownloadResult? {
