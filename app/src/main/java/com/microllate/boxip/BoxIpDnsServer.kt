@@ -27,7 +27,7 @@ object BoxIpDnsServer {
     private const val TTL_SECONDS = 5
 
     @Volatile
-    private var currentIp = "104.16.26.155"
+    private var currentIp = ""
 
     @Volatile
     private var started = false
