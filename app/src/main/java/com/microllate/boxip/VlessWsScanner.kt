@@ -132,7 +132,8 @@ class VlessWsScanner(
                 InetSocketAddress("127.0.0.1", port)
             )
 
-            val testUrl = URL("https://" + host + TEST_PATH)\n            val connection = testUrl.openConnection(proxy) as HttpsURLConnection
+            val testUrl = URL("https://" + host + TEST_PATH)
+            val connection = testUrl.openConnection(proxy) as HttpsURLConnection
             connection.connectTimeout = timeoutMs
             connection.readTimeout = timeoutMs
             connection.instanceFollowRedirects = false
@@ -214,7 +215,11 @@ class VlessWsScanner(
             .put("uuid", uuid)
             .put("tls", tls)
             .put("transport", transport)
-            .put("packet_encoding", "xudp")\n\n        if (!interfaceName.isNullOrBlank()) {\n            vless.put("bind_interface", interfaceName)\n        }
+            .put("packet_encoding", "xudp")
+
+        if (!interfaceName.isNullOrBlank()) {
+            vless.put("bind_interface", interfaceName)
+        }
 
         val inbound = JSONObject()
             .put("type", "mixed")
