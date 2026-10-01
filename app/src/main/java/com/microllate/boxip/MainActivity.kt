@@ -14,6 +14,8 @@ import android.graphics.Paint
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Spinner
+import android.widget.ArrayAdapter
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -24,7 +26,32 @@ class MainActivity : Activity() {
         private const val THEME_SYSTEM = 0
         private const val THEME_LIGHT = 1
         private const val THEME_DARK = 2
+        private const val KEY_REGION = "region"
     }
+
+    private data class RegionOption(
+        val label: String,
+        val pops: Set<String>,
+        val candidateCount: Int
+    )
+
+    private val regionOptions = listOf(
+        RegionOption("自动", emptySet(), 10),
+        RegionOption("香港 HKG", setOf("HKG"), 20),
+        RegionOption("日本 JP", setOf("NRT", "KIX", "FUK", "OKA"), 20),
+        RegionOption("新加坡 SIN", setOf("SIN"), 20),
+        RegionOption(
+            "美国 US",
+            setOf(
+                "ATL", "AUS", "BNA", "BOS", "BUF", "CLT", "CLE", "CMH", "CVG",
+                "DAL", "DFW", "DEN", "DTW", "EWR", "IAD", "IAH", "IND", "JAX",
+                "LAS", "LAX", "MCI", "MCO", "MEM", "MIA", "MSP", "MSY", "OAK",
+                "OMA", "ORD", "PDX", "PHL", "PHX", "PIT", "RDU", "RIC", "SAN",
+                "SAT", "SEA", "SFO", "SJC", "SLC", "SMF", "STL", "TPA"
+            ),
+            20
+        )
+    )
 
     private val executor = Executors.newSingleThreadExecutor()
 
@@ -52,6 +79,7 @@ class MainActivity : Activity() {
         val resultTable = findViewById<LinearLayout>(R.id.resultTable)
         val startButton = findViewById<Button>(R.id.startScanButton)
         val themeButton = findViewById<TextView>(R.id.themeButton)
+        val regionSpinner = findViewById<Spinner>(R.id.regionSpinner)
         val rangesValue = findViewById<TextView>(R.id.rangesValue)
         val candidatesValue = findViewById<TextView>(R.id.candidatesValue)
         val tcpValue = findViewById<TextView>(R.id.tcpValue)
@@ -59,6 +87,36 @@ class MainActivity : Activity() {
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
 
         themeButton.text = themeLabel(currentThemeMode())
+
+        val regionAdapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            regionOptions.map { it.label }
+        ).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        regionSpinner.adapter = regionAdapter
+        regionSpinner.setSelection(
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getInt(KEY_REGION, 0)
+                .coerceIn(0, regionOptions.lastIndex)
+        )
+        regionSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt(KEY_REGION, position)
+                    .apply()
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        })
+
         restoreLastResults(
             statusText,
             resultText,
@@ -84,6 +142,7 @@ class MainActivity : Activity() {
         startButton.setOnClickListener {
             startButton.isEnabled = false
             themeButton.isEnabled = false
+            regionSpinner.isEnabled = false
             statusText.text = "正在获取 Cloudflare IPv4 网段…"
             resultText.visibility = View.VISIBLE
             resultText.text = "准备测速…"
@@ -96,7 +155,13 @@ class MainActivity : Activity() {
 
             executor.execute {
                 try {
-                    val ranges = CloudflareIpProvider().fetch()
+                    val selectedRegion = regionOptions[
+                getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getInt(KEY_REGION, 0)
+                    .coerceIn(0, regionOptions.lastIndex)
+            ]
+
+            val ranges = CloudflareIpProvider().fetch()
 
                     val physicalNetwork = connectivityManager.allNetworks
                         .firstOrNull { network ->
@@ -148,12 +213,14 @@ class MainActivity : Activity() {
                         results.firstOrNull { it.ip == ip }
                     }
                     val downloadCandidates = buildList {
-                        // All retained >10 MB/s IPs get priority whenever TCPing succeeds.
-                        addAll(retainedResults.distinctBy { it.ip }.take(10))
+                        // Region-specific scans use more candidates so Anycast has a
+                        // better chance to expose the requested Cloudflare PoP.
+                        val targetCount = selectedRegion.candidateCount
 
-                        // Fill the remaining slots with the current TCP top results.
+                        addAll(retainedResults.distinctBy { it.ip }.take(targetCount))
+
                         for (result in results) {
-                            if (size >= 10) break
+                            if (size >= targetCount) break
                             if (none { it.ip == result.ip }) {
                                 add(result)
                             }
@@ -170,10 +237,17 @@ class MainActivity : Activity() {
                         network = physicalNetwork,
                         observationMs = 30_000,
                         probeIntervalMs = 5_000,
-                        connectTimeoutMs = 3_000
+                        connectTimeoutMs = 3_000,
+                        concurrency = 3
                     ).download(downloadCandidates.map { it.ip })
 
-                    val resultByIp = downloadResults.associateBy { it.ip }
+                    val regionResults = if (selectedRegion.pops.isEmpty()) {
+                        downloadResults
+                    } else {
+                        downloadResults.filter { it.pop in selectedRegion.pops }
+                    }
+
+                    val resultByIp = regionResults.associateBy { it.ip }
 
                     sampler.record(
                         downloadCandidates.map { scanResult ->
@@ -197,10 +271,18 @@ class MainActivity : Activity() {
                         )
 
                     runOnUiThread {
-                        downloadValue.text = downloadResults.size.toString()
-                        statusText.text = "测速完成 · 按入口连接质量排序"
+                        downloadValue.text = regionResults.size.toString()
+                        statusText.text = if (selectedRegion.pops.isEmpty()) {
+                            "测速完成 · 按入口连接质量排序"
+                        } else {
+                            "测速完成 · ${selectedRegion.label}"
+                        }
                         resultText.visibility = if (displayedResults.isEmpty()) View.VISIBLE else View.GONE
-                        resultText.text = "没有下载测速候选结果。"
+                        resultText.text = if (selectedRegion.pops.isEmpty()) {
+                            "没有成功的入口质量测试结果。"
+                        } else {
+                            "当前网络下未测到 ${selectedRegion.label}，可切换为自动再测试。"
+                        }
 
                         renderResults(resultTable, displayedResults)
                         saveLastResults(
@@ -213,6 +295,7 @@ class MainActivity : Activity() {
 
                         startButton.isEnabled = true
                         themeButton.isEnabled = true
+                        regionSpinner.isEnabled = true
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
@@ -220,6 +303,7 @@ class MainActivity : Activity() {
                         resultText.text = e.message ?: e.javaClass.simpleName
                         startButton.isEnabled = true
                         themeButton.isEnabled = true
+                        regionSpinner.isEnabled = true
                     }
                 }
             }
