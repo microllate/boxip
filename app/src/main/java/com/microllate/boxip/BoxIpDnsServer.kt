@@ -2,42 +2,37 @@ package com.microllate.boxip
 
 import android.content.Context
 import android.util.Log
-import java.io.File
 
 /**
  * Publishes BoxIP's selected Cloudflare IP as a sing-box hosts file.
  *
- * BoxIP no longer implements a local UDP DNS server. sing-box owns DNS
- * request concurrency, caching, packet parsing and response delivery.
- *
- * The generated file contains:
- *   <current-ip> life.mozzarella.top
- *
- * Configure sing-box once with a hosts DNS server pointing at this file.
+ * The file is stored in /data/adb/box/sing-box so the root-running
+ * sing-box process can access the same fixed path without crossing the
+ * app's private data directory.
  */
 object BoxIpDnsServer {
 
     private const val TAG = "BoxIpDnsServer"
     private const val HOST = "life.mozzarella.top"
-    private const val FILE_NAME = "boxip.hosts"
+    private const val FILE_PATH = "/data/adb/box/sing-box/boxip.hosts"
 
     @Volatile
     private var currentIp = ""
 
     @Volatile
-    private var hostsFile: File? = null
+    private var started = false
 
     @Synchronized
     fun start(context: Context) {
-        val file = File(context.filesDir, FILE_NAME)
-        hostsFile = file
+        if (started) return
+        started = true
 
         try {
-            file.parentFile?.mkdirs()
-            publish(file)
-            Log.i(TAG, "sing-box hosts file ready: ${file.absolutePath}")
+            ensureRootDirectory()
+            publish()
+            Log.i(TAG, "sing-box hosts file ready: " + FILE_PATH)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize hosts file", e)
+            Log.e(TAG, "Failed to initialize root hosts file", e)
         }
     }
 
@@ -46,12 +41,13 @@ object BoxIpDnsServer {
 
         currentIp = ip
 
-        val file = hostsFile ?: return
+        if (!started) return
+
         try {
-            publish(file)
-            Log.d(TAG, "Current IP published to hosts: $ip")
+            publish()
+            Log.d(TAG, "Current IP published to hosts: " + ip)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to publish current IP: $ip", e)
+            Log.e(TAG, "Failed to publish current IP: " + ip, e)
         }
     }
 
@@ -59,34 +55,52 @@ object BoxIpDnsServer {
 
     @Synchronized
     fun stop() {
-        // The hosts file intentionally remains in place. sing-box can keep
-        // reading the last known-good entry even if the UI activity is gone.
-        hostsFile = null
+        started = false
     }
 
-    private fun publish(file: File) {
+    private fun ensureRootDirectory() {
+        runAsRoot(
+            "mkdir -p /data/adb/box/sing-box && " +
+                "chmod 0755 /data/adb/box/sing-box"
+        )
+    }
+
+    private fun publish() {
         val ip = currentIp
-        if (!isValidIpv4(ip)) {
-            return
+        if (!isValidIpv4(ip)) return
+
+        val content =
+            "# BoxIP managed file - do not edit manually\n" +
+                ip + " " + HOST + "\n"
+
+        val command =
+            "tmp=/data/adb/box/sing-box/.boxip.hosts.tmp; " +
+                "cat > \$tmp && " +
+                "chmod 0644 \$tmp && " +
+                "mv -f \$tmp " + FILE_PATH + " && " +
+                "chmod 0644 " + FILE_PATH
+
+        runAsRoot(command, content)
+    }
+
+    private fun runAsRoot(command: String, stdin: String? = null) {
+        val process = ProcessBuilder("su", "-c", command)
+            .redirectErrorStream(true)
+            .start()
+
+        stdin?.let {
+            process.outputStream.bufferedWriter(Charsets.US_ASCII).use { writer ->
+                writer.write(it)
+            }
         }
 
-        val parent = file.parentFile ?: return
-        parent.mkdirs()
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        val exitCode = process.waitFor()
 
-        // Write a complete temporary file first, then atomically replace the
-        // published file. sing-box must never observe a partially written line.
-        val temp = File(parent, "${file.name}.tmp")
-        temp.writeText(
-            "# BoxIP managed file - do not edit manually\n" +
-                "$ip $HOST\n",
-            Charsets.US_ASCII
-        )
-
-        if (!temp.renameTo(file)) {
-            file.delete()
-            if (!temp.renameTo(file)) {
-                throw IllegalStateException("Unable to replace hosts file")
-            }
+        if (exitCode != 0) {
+            throw IllegalStateException(
+                "root command failed (" + exitCode + "): " + output.trim()
+            )
         }
     }
 
