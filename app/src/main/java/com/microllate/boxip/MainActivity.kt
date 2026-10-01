@@ -10,6 +10,7 @@ import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.view.View
 import android.view.Gravity
+import android.graphics.Paint
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -360,7 +361,9 @@ class MainActivity : Activity() {
         row.gravity = Gravity.CENTER_VERTICAL
 
         val values = listOf(ip, loss, latency, speed, pop)
-        values.forEach { value ->
+        val columnWeights = contentColumnWeights()
+
+        values.forEachIndexed { index, value ->
             val cell = TextView(this)
             cell.text = value
             cell.setTextColor(
@@ -379,12 +382,70 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(
                     0,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                    1f
+                    columnWeights[index]
                 )
             )
         }
 
         return row
+    }
+
+    /**
+     * Give each column a weight based on the widest text currently shown.
+     * This keeps the columns aligned across rows while avoiding fixed 20% columns.
+     */
+    private fun contentColumnWeights(): FloatArray {
+        val rows = mutableListOf(
+            listOf("IP", "丢包", "延迟", "速度", "区域")
+        )
+
+        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        val raw = prefs.getString("results", null)
+        if (!raw.isNullOrEmpty()) {
+            try {
+                val array = JSONArray(raw)
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    rows += listOf(
+                        item.optString("ip", ""),
+                        String.format(
+                            Locale.US,
+                            "%.0f%%",
+                            item.optDouble("loss", 0.0) * 100
+                        ),
+                        if (item.optLong("latency", -1L) >= 0) {
+                            item.optLong("latency", -1L).toString() + " ms"
+                        } else {
+                            "-"
+                        },
+                        String.format(
+                            Locale.US,
+                            "%.2f MB/s",
+                            item.optDouble("speed", 0.0)
+                        ),
+                        item.optString("pop", "").ifEmpty { "-" }
+                    )
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        val widths = FloatArray(5)
+        rows.forEach { row ->
+            row.forEachIndexed { index, value ->
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    textSize = sp(if (index == 0 && value != "IP") 12f else 13f)
+                }
+                val width = paint.measureText(value) + dp(8)
+                widths[index] = maxOf(widths[index], width)
+            }
+        }
+
+        return widths
+    }
+
+    private fun sp(value: Float): Float {
+        return value * resources.displayMetrics.scaledDensity
     }
 
     private fun getThemeColor(attr: Int): Int {
