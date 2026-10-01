@@ -37,9 +37,9 @@ class MainActivity : Activity() {
 
     private val regionOptions = listOf(
         RegionOption("自动", emptySet(), 10),
-        RegionOption("香港 HKG", setOf("HKG"), 20),
-        RegionOption("日本 JP", setOf("NRT", "KIX", "FUK", "OKA"), 20),
-        RegionOption("新加坡 SIN", setOf("SIN"), 20),
+        RegionOption("香港 HKG", setOf("HKG"), 100),
+        RegionOption("日本 JP", setOf("NRT", "KIX", "FUK", "OKA"), 100),
+        RegionOption("新加坡 SIN", setOf("SIN"), 100),
         RegionOption(
             "美国 US",
             setOf(
@@ -49,7 +49,7 @@ class MainActivity : Activity() {
                 "OMA", "ORD", "PDX", "PHL", "PHX", "PIT", "RDU", "RIC", "SAN",
                 "SAT", "SEA", "SFO", "SJC", "SLC", "SMF", "STL", "TPA"
             ),
-            20
+            100
         )
     )
 
@@ -212,42 +212,102 @@ class MainActivity : Activity() {
                     val retainedResults = historicalFastestIps.mapNotNull { ip ->
                         results.firstOrNull { it.ip == ip }
                     }
-                    val downloadCandidates = buildList {
-                        // Region-specific scans use more candidates so Anycast has a
-                        // better chance to expose the requested Cloudflare PoP.
-                        val targetCount = selectedRegion.candidateCount
 
-                        addAll(retainedResults.distinctBy { it.ip }.take(targetCount))
+                    // Automatic mode keeps the existing Top 10 flow.
+                    // Region mode first performs a short PoP discovery across
+                    // a larger and more diverse pool. Anycast cannot force a
+                    // specific PoP; we need to observe what this network reaches.
+                    val initialCandidates = if (selectedRegion.pops.isEmpty()) {
+                        buildList {
+                            addAll(retainedResults.distinctBy { it.ip }.take(10))
+                            for (result in results) {
+                                if (size >= 10) break
+                                if (none { it.ip == result.ip }) add(result)
+                            }
+                        }
+                    } else {
+                        results.shuffled().take(selectedRegion.candidateCount)
+                    }
 
-                        for (result in results) {
-                            if (size >= targetCount) break
-                            if (none { it.ip == result.ip }) {
-                                add(result)
+                    val downloadCandidates: List<CfstScanResult>
+                    val discoveryResults: List<CfstDownloadResult>
+
+                    if (selectedRegion.pops.isEmpty()) {
+                        downloadCandidates = initialCandidates
+                        runOnUiThread {
+                            tcpValue.text = results.size.toString()
+                            statusText.text = "第二阶段 · Cloudflare 入口质量"
+                            resultText.text = "TCPing 完成，正在测试 ${downloadCandidates.size} 个 IP 的 TCP / TLS / TTFB / 30 秒稳定性…"
+                        }
+
+                        discoveryResults = CfstDownloader(
+                            network = physicalNetwork,
+                            observationMs = 30_000,
+                            probeIntervalMs = 5_000,
+                            connectTimeoutMs = 3_000,
+                            concurrency = 3
+                        ).download(downloadCandidates.map { it.ip })
+                    } else {
+                        runOnUiThread {
+                            tcpValue.text = results.size.toString()
+                            statusText.text = "第二阶段 · ${selectedRegion.label} PoP 探索"
+                            resultText.text = "先用 ${initialCandidates.size} 个候选进行 5 秒轻量探测，寻找实际可达的 ${selectedRegion.label}…"
+                        }
+
+                        discoveryResults = CfstDownloader(
+                            network = physicalNetwork,
+                            observationMs = 5_000,
+                            probeIntervalMs = 5_000,
+                            connectTimeoutMs = 3_000,
+                            probeTimeoutMs = 3_000,
+                            concurrency = 8
+                        ).download(initialCandidates.map { it.ip })
+
+                        val matchingIps = discoveryResults
+                            .filter { it.pop in selectedRegion.pops }
+                            .sortedWith(
+                                compareByDescending<CfstDownloadResult> { it.stabilityPercent }
+                                    .thenBy { it.tlsHandshakeMs }
+                                    .thenBy { it.ttfbMs }
+                            )
+                            .take(10)
+                            .map { it.ip }
+                            .toSet()
+
+                        downloadCandidates = results.filter { it.ip in matchingIps }
+                            .sortedBy { matchingIps.indexOf(it.ip) }
+
+                        runOnUiThread {
+                            statusText.text = "第二阶段 · ${selectedRegion.label} 入口质量"
+                            resultText.text = if (downloadCandidates.isEmpty()) {
+                                "本次探索未观察到 ${selectedRegion.label}。Cloudflare Anycast 无法强制指定 PoP，可换网络或稍后重试。"
+                            } else {
+                                "发现 ${downloadCandidates.size} 个 ${selectedRegion.label} 入口，正在进行 30 秒完整质量测试…"
                             }
                         }
                     }
 
-                    runOnUiThread {
-                        tcpValue.text = results.size.toString()
-                        statusText.text = "第二阶段 · Cloudflare 入口质量"
-                        resultText.text = "TCPing 完成，正在测试 ${downloadCandidates.size} 个 IP 的 TCP / TLS / TTFB / 30 秒稳定性…"
+                    val downloadResults = if (selectedRegion.pops.isEmpty()) {
+                        discoveryResults
+                    } else if (downloadCandidates.isEmpty()) {
+                        emptyList()
+                    } else {
+                        CfstDownloader(
+                            network = physicalNetwork,
+                            observationMs = 30_000,
+                            probeIntervalMs = 5_000,
+                            connectTimeoutMs = 3_000,
+                            probeTimeoutMs = 3_000,
+                            concurrency = 3
+                        ).download(downloadCandidates.map { it.ip })
                     }
 
-                    val downloadResults = CfstDownloader(
-                        network = physicalNetwork,
-                        observationMs = 30_000,
-                        probeIntervalMs = 5_000,
-                        connectTimeoutMs = 3_000,
-                        concurrency = 3
-                    ).download(downloadCandidates.map { it.ip })
-
+                    val allResultByIp = downloadResults.associateBy { it.ip }
                     val regionResults = if (selectedRegion.pops.isEmpty()) {
                         downloadResults
                     } else {
                         downloadResults.filter { it.pop in selectedRegion.pops }
                     }
-
-                    val allResultByIp = downloadResults.associateBy { it.ip }
                     val resultByIp = regionResults.associateBy { it.ip }
 
                     sampler.record(
