@@ -224,38 +224,47 @@ class MainActivity : Activity() {
 
                     val results = mutableListOf<CfstScanResult>()
                     val candidates = mutableListOf<String>()
-                    val initialCandidates: List<CfstScanResult>
+                    var vlessResults: List<VlessWsResult> = emptyList()
+                    var downloadCandidates: List<CfstScanResult> = emptyList()
+                    var downloadResults: List<CfstDownloadResult> = emptyList()
+                    var regionResults: List<CfstDownloadResult> = emptyList()
+                    var displayedResults: List<DownloadDisplayResult> = emptyList()
+                    var realNodeCandidates: List<CfstDownloadResult> = emptyList()
+                    var realNodeResults: List<CfstDownloadResult> = emptyList()
+                    var selectedIp: String? = null
+
+                    val physicalInterface =
+                        connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
 
                     if (selectedRegion.pops.isEmpty()) {
-                        // Automatic mode: stage 1 is now a strict low-latency discovery pass.
-                        // Test random batches of 300 and keep only TCP < 200 ms. Continue
-                        // sampling new batches until 30 qualifying IPs have been found.
                         val testedIps = linkedSetOf<String>()
-                        val fastIps = linkedMapOf<String, CfstScanResult>()
-                        var batchIndex = 0
+                        var cycleIndex = 0
 
-                        runOnUiThread {
-                            rangesValue.text = ranges.ipv4.size.toString()
-                            candidatesValue.text = "0"
-                            statusText.text = "第一阶段 · TCP < 200 ms 筛选"
-                            resultText.text = "随机测试 300 个 IP，正在寻找 TCP < 200 ms 的入口…"
-                        }
+                        while (true) {
+                            cycleIndex++
 
-                        appendScanLog("第一阶段开始 · 每批随机 300 IP · 目标 TCP < 200 ms × 30")
-
-                        while (fastIps.size < 30) {
-                            batchIndex++
-
-                            // Avoid retesting an IP that was already measured in a previous batch.
                             val batch = sampler.sampleRandomBatch(ranges.ipv4, 300)
                                 .filterNot(testedIps::contains)
 
                             if (batch.isEmpty()) {
-                                throw IllegalStateException("Cloudflare IP 地址池已耗尽，无法找到 30 个 TCP < 200 ms 的 IP")
+                                throw IllegalStateException(
+                                    "Cloudflare IP 地址池已耗尽，无法继续寻找可用入口"
+                                )
                             }
 
                             testedIps += batch
                             candidates += batch
+
+                            runOnUiThread {
+                                rangesValue.text = ranges.ipv4.size.toString()
+                                candidatesValue.text = testedIps.size.toString()
+                                statusText.text = "第一阶段 · TCP ≤ 150 ms 筛选"
+                                resultText.text = "随机测试 300 个 IP，寻找 TCP ≤ 150 ms 的入口…"
+                            }
+
+                            appendScanLog(
+                                "第 ${cycleIndex} 轮 · 第一阶段开始 · 随机 300 IP · TCP ≤ 150 ms"
+                            )
 
                             val batchResults = CfstScanner(
                                 network = physicalNetwork,
@@ -266,28 +275,154 @@ class MainActivity : Activity() {
 
                             results += batchResults
 
-                            batchResults
-                                .filter { it.received > 0 && (it.latencyMs ?: Long.MAX_VALUE) < 200L }
-                                .forEach { fastIps.putIfAbsent(it.ip, it) }
+                            val tcpCandidates = batchResults
+                                .filter {
+                                    it.received > 0 &&
+                                        (it.latencyMs ?: Long.MAX_VALUE) <= 150L
+                                }
+                                .distinctBy { it.ip }
 
-                            val found = minOf(fastIps.size, 30)
                             appendScanLog(
-                                "第 ${batchIndex} 批完成 · TCP < 200 ms: ${found} / 30 · 本批测试 ${batch.size} · 累计 ${testedIps.size}"
+                                "第一阶段完成 · 本批 TCP ≤ 150 ms：${tcpCandidates.size} 个"
                             )
 
-                            runOnUiThread {
-                                candidatesValue.text = testedIps.size.toString()
-                                resultText.text = "已测试 ${testedIps.size} 个 IP，找到 TCP < 200 ms：${found} / 30…"
+                            if (tcpCandidates.isEmpty()) {
+                                appendScanLog("第一阶段结果为空 · 重新随机 300 个 IP")
+                                continue
                             }
+
+                            runOnUiThread {
+                                statusText.text = "第二阶段 · 真实 VLESS + WS 验证"
+                            }
+                            appendScanLog(
+                                "第二阶段开始 · 原生 TLS → WS · ${tcpCandidates.size} 个入口"
+                            )
+
+                            val currentVlessResults = VlessWsScanner(
+                                network = physicalNetwork,
+                                timeoutMs = 8_000,
+                                concurrency = 4
+                            ).scan(
+                                ips = tcpCandidates.map { it.ip },
+                                host = "life.mozzarella.top",
+                                path = "",
+                                interfaceName = physicalInterface
+                            ) { result ->
+                                appendScanLog(
+                                    "VLESS ${result.ip} · " +
+                                        if (result.success) {
+                                            "成功 · ${result.latencyMs ?: "-"} ms · ${result.stage}"
+                                        } else {
+                                            "失败 · ${result.stage} · ${result.error ?: "未知错误"}"
+                                        }
+                                )
+                            }
+
+                            val currentVlessByIp = currentVlessResults.associateBy { it.ip }
+                            val verifiedCandidates = tcpCandidates.filter {
+                                currentVlessByIp[it.ip]?.success == true
+                            }
+
+                            appendScanLog(
+                                "第二阶段完成 · VLESS + WS 成功 ${verifiedCandidates.size} / ${tcpCandidates.size}"
+                            )
+
+                            if (verifiedCandidates.isEmpty()) {
+                                appendScanLog("第二阶段结果为空 · 回到第一阶段重新随机 300 个 IP")
+                                continue
+                            }
+
+                            runOnUiThread {
+                                tcpValue.text = tcpCandidates.size.toString()
+                                statusText.text = "第三阶段 · Cloudflare 入口质量"
+                                stageProgress.visibility = View.VISIBLE
+                                stageProgress.progress = 0
+                            }
+
+                            appendScanLog(
+                                "第三阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${verifiedCandidates.size} 个 IP"
+                            )
+
+                            val currentDownloadResults = CfstDownloader(
+                                network = physicalNetwork,
+                                observationMs = 30_000,
+                                probeIntervalMs = 5_000,
+                                connectTimeoutMs = 3_000,
+                                probeTimeoutMs = 3_000,
+                                concurrency = 3
+                            ).download(verifiedCandidates.map { it.ip }) { completed, total ->
+                                val percent =
+                                    (completed * 100 / total.coerceAtLeast(1)).coerceIn(0, 100)
+                                runOnUiThread {
+                                    stageProgress.progress = percent
+                                }
+                            }
+
+                            val currentQualityResults = CfstQualityScorer()
+                                .rank(currentDownloadResults.filter { it.minTcpConnectMs <= 150L })
+
+                            appendScanLog(
+                                "第三阶段完成 · 最终质量结果 ${currentQualityResults.size} 个"
+                            )
+
+                            if (currentQualityResults.isEmpty()) {
+                                appendScanLog("第三阶段结果为空 · 回到第一阶段重新开始")
+                                runOnUiThread { stageProgress.progress = 0 }
+                                continue
+                            }
+
+                            vlessResults = currentVlessResults
+                            downloadCandidates = verifiedCandidates
+                            downloadResults = currentDownloadResults
+                            regionResults = currentDownloadResults
+
+                            val qualityByIp = currentQualityResults.associateBy { it.result.ip }
+
+                            realNodeCandidates = currentQualityResults
+                                .take(10)
+                                .map { it.result }
+
+                            realNodeResults = realNodeCandidates.mapNotNull { candidate ->
+                                regionResults.firstOrNull { it.ip == candidate.ip }
+                            }
+
+                            selectedIp = currentQualityResults
+                                .firstOrNull()
+                                ?.result
+                                ?.ip
+                                ?: getPersistedSelectedIp()
+
+                            displayedResults = downloadCandidates.map { scanResult ->
+                                DownloadDisplayResult(
+                                    scanResult,
+                                    regionResults.firstOrNull { it.ip == scanResult.ip }
+                                )
+                            }.sortedWith(
+                                compareBy<DownloadDisplayResult> { it.downloadResult == null }
+                                    .thenByDescending {
+                                        it.downloadResult?.let { qualityByIp[it.ip]?.totalScore } ?: -1.0
+                                    }
+                                    .thenBy { it.downloadResult?.ttfbMs ?: Long.MAX_VALUE }
+                                    .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
+                                    .thenBy { it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE }
+                            )
+
+                            sampler.record(
+                                downloadCandidates.map { scanResult ->
+                                    val downloadResult =
+                                        currentDownloadResults.firstOrNull { it.ip == scanResult.ip }
+                                    CfstLearningObservation(
+                                        ip = scanResult.ip,
+                                        downloadSpeedMbps = downloadResult?.downloadSpeedMbps ?: 0.0,
+                                        latencyMs = scanResult.latencyMs,
+                                        success = downloadResult != null
+                                    )
+                                }
+                            )
+
+                            runOnUiThread { stageProgress.progress = 100 }
+                            break
                         }
-
-                        initialCandidates = fastIps.values
-                            .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
-                            .take(30)
-
-                        appendScanLog(
-                            "第一阶段完成 · 累计测试 ${testedIps.size} 个 IP · TCP < 200 ms 共 ${initialCandidates.size} 个"
-                        )
                     } else {
                         // Region mode keeps its existing discovery behavior.
                         val sampled = sampler.sample(ranges.ipv4)
