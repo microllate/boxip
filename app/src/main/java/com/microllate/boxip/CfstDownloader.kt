@@ -125,13 +125,9 @@ class CfstDownloader(
             tlsHandshakeMs = avgTlsHandshakeMs,
             ttfbMs = avgTtfbMs,
             stabilityPercent = stabilityPercent,
-            // Kept for compatibility with the existing learning model.
-            // The new test intentionally does not use bulk download speed
-            // as the entry-quality metric.
-            downloadSpeedMbps = 0.0,
+            downloadSpeedMbps = downloadSpeedMbps,
             durationMs = elapsedMs,
-            pop = lastPop?.uppercase(Locale.US),
-            downloadSpeedMbps = downloadSpeedMbps
+            pop = lastPop?.uppercase(Locale.US)
         )
     }
 
