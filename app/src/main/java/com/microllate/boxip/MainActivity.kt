@@ -1148,9 +1148,25 @@ class MainActivity : Activity() {
     private fun updateHistoryItem(item: HistoryResult) {
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
         val history = parseHistory(prefs.getString(KEY_HISTORY, null)).toMutableList()
-        history.removeAll { it.ip == item.ip }
-        history.add(item)
-        prefs.edit().putString(KEY_HISTORY, serializeHistory(history)).apply()
+        val index = history.indexOfFirst { it.ip == item.ip }
+
+        if (index >= 0) {
+            val old = history[index]
+            history[index] = HistoryResult(
+                ip = item.ip,
+                tcpMs = item.tcpMs.takeIf { it >= 0L } ?: old.tcpMs,
+                tlsMs = item.tlsMs.takeIf { it >= 0L } ?: old.tlsMs,
+                ttfbMs = item.ttfbMs.takeIf { it >= 0L } ?: old.ttfbMs,
+                speed = item.speed.takeIf { it > 0.0 } ?: old.speed,
+                pop = item.pop ?: old.pop,
+                vlessLatencyMs = item.vlessLatencyMs.takeIf { it >= 0L } ?: old.vlessLatencyMs,
+                testedAt = item.testedAt
+            )
+        } else {
+            history.add(item)
+        }
+
+        prefs.edit().putString(KEY_HISTORY, serializeHistory(history)).commit()
     }
 
     private fun deleteHistoryIp(ip: String, resultTable: LinearLayout) {
