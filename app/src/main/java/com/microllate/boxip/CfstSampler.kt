@@ -34,6 +34,17 @@ class CfstSampler(
     private val legacyFastestIpKey = "fastest_ip_$networkKey"
     private val legacyFastestSpeedKey = "fastest_speed_$networkKey"
 
+    /**
+     * Generate one independent random batch for first-stage TCP discovery.
+     * Historical learning is intentionally not used here: stage 1 must
+     * measure the current physical-network path rather than reuse old picks.
+     */
+    fun sampleRandomBatch(cidrs: List<String>, count: Int = 300): List<String> {
+        val candidates = ArrayList<String>()
+        for (cidr in cidrs) addCidrSamples(cidr, candidates)
+        return candidates.distinct().shuffled().take(count.coerceAtLeast(1))
+    }
+
     fun sample(cidrs: List<String>): List<String> {
         val candidates = ArrayList<String>()
         for (cidr in cidrs) addCidrSamples(cidr, candidates)
