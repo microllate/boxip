@@ -55,7 +55,8 @@ class VlessWsScanner(
         ips: List<String>,
         host: String,
         path: String,
-        interfaceName: String? = null
+        interfaceName: String? = null,
+        onResult: ((VlessWsResult) -> Unit)? = null
     ): List<VlessWsResult> {
         if (ips.isEmpty()) return emptyList()
 
@@ -68,7 +69,9 @@ class VlessWsScanner(
         try {
             val tasks = ips.distinct().mapIndexed { index, ip ->
                 Callable {
-                    test(ip, host, path, profile, interfaceName, BASE_PORT + index)
+                    val result = test(ip, host, path, profile, interfaceName, BASE_PORT + index)
+                    runCatching { onResult?.invoke(result) }
+                    result
                 }
             }
             return executor.invokeAll(tasks).map { it.get() }
