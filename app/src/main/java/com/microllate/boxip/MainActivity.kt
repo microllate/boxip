@@ -702,7 +702,15 @@ class MainActivity : Activity() {
                     maxLines = 1
                 }, LinearLayout.LayoutParams(0, dp(22), 1f))
             }
-            row.addView(metricsHeader)
+            row.addView(
+                metricsHeader,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(22)
+                ).apply {
+                    topMargin = dp(6)
+                }
+            )
 
             val metricsRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
