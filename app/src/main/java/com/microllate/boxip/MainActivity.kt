@@ -173,7 +173,7 @@ class MainActivity : Activity() {
                     fun appendScanLog(message: String) {
                         val elapsed = (System.currentTimeMillis() - scanStartMs) / 1000.0
                         runOnUiThread {
-                            scanLog.append(String.format(Locale.US, "[%6.1fs] %s\\n", elapsed, message))
+                            scanLog.append(String.format(Locale.US, "[%6.1fs] %s\n", elapsed, message))
                             resultText.visibility = View.VISIBLE
                             resultText.text = scanLog.toString()
                         }
