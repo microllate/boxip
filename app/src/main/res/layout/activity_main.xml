@@ -241,7 +241,7 @@
             android:id="@+id/candidateHintText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="TCPing → Top 30 → 质量评分 → Top 10 → VLESS + WS"
+            android:text="TCPing → Top 30 → 质量评分 → Top 10 → 真实 VLESS + WS"
             android:textColor="?attr/boxTextMuted"
             android:textSize="11sp" />
     </LinearLayout>
