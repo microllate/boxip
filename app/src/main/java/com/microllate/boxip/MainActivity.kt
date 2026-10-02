@@ -17,6 +17,7 @@ import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Spinner
@@ -96,6 +97,7 @@ class MainActivity : Activity() {
         val candidatesValue = findViewById<TextView>(R.id.candidatesValue)
         val tcpValue = findViewById<TextView>(R.id.tcpValue)
         val downloadValue = findViewById<TextView>(R.id.downloadValue)
+        val stageProgress = findViewById<ProgressBar>(R.id.stageProgress)
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
 
         themeButton.text = themeLabel(currentThemeMode())
@@ -164,6 +166,8 @@ class MainActivity : Activity() {
             candidatesValue.text = "—"
             tcpValue.text = "—"
             downloadValue.text = "—"
+            stageProgress.visibility = View.GONE
+            stageProgress.progress = 0
 
             executor.execute {
                 try {
@@ -320,6 +324,8 @@ class MainActivity : Activity() {
                         runOnUiThread {
                             tcpValue.text = initialCandidates.size.toString()
                             statusText.text = "第二阶段 · Cloudflare 入口质量"
+                            stageProgress.visibility = View.VISIBLE
+                            stageProgress.progress = 0
                         }
                         appendScanLog(
                             "第二阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${downloadCandidates.size} 个 IP"
@@ -331,7 +337,12 @@ class MainActivity : Activity() {
                             probeIntervalMs = 5_000,
                             connectTimeoutMs = 3_000,
                             concurrency = 3
-                        ).download(downloadCandidates.map { it.ip })
+                        ).download(downloadCandidates.map { it.ip }) { completed, total ->
+                            val percent = (completed * 100 / total.coerceAtLeast(1)).coerceIn(0, 100)
+                            runOnUiThread {
+                                stageProgress.progress = percent
+                            }
+                        }
                     } else {
                         runOnUiThread {
                             tcpValue.text = results.size.toString()
@@ -403,6 +414,8 @@ class MainActivity : Activity() {
                     val qualityResults = CfstQualityScorer()
                         .rank(regionResults.filter { it.tcpConnectMs < 200L })
                     val qualityByIp = qualityResults.associateBy { it.result.ip }
+
+                    runOnUiThread { stageProgress.progress = 100 }
 
                     appendScanLog(
                         "第二阶段完成 · 完成质量评分 · Top ${qualityResults.take(10).size} 进入真实验证"
