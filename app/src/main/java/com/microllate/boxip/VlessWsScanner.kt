@@ -139,31 +139,39 @@ class VlessWsScanner(
             val wsPath = requestedPath.ifBlank { profile.wsPath }
             val normalizedPath = if (wsPath.startsWith("/")) wsPath else "/$wsPath"
 
-            // First native stage: TCP + TLS/SNI + WebSocket Upgrade.
-            // VLESS payload is intentionally not sent yet.
-            val result = NativeVlessWsClient(timeoutMs).probe(
-                ip = ip,
-                port = profile.serverPort,
-                serverName = profile.tlsServerName.ifBlank { host },
-                wsHost = profile.wsHost.ifBlank { host },
-                wsPath = normalizedPath
-            )
+            // Repeat the native TLS + WebSocket probe three times.
+            // A single successful handshake is treated as an outlier; at least
+            // two successful handshakes are required for the IP to pass.
+            val attempts = (1..3).map {
+                NativeVlessWsClient(timeoutMs).probe(
+                    ip = ip,
+                    port = profile.serverPort,
+                    serverName = profile.tlsServerName.ifBlank { host },
+                    wsHost = profile.wsHost.ifBlank { host },
+                    wsPath = normalizedPath
+                )
+            }
 
-            if (result.success) {
+            val successful = attempts.filter { it.success }
+            val successCount = successful.size
+
+            if (successCount >= 2) {
+                val averageMs = successful.mapNotNull { it.elapsedMs }.average().toLong()
                 VlessWsResult(
                     ip = ip,
-                    latencyMs = result.elapsedMs,
+                    latencyMs = averageMs,
                     success = true,
                     stage = "原生 TLS + WS",
-                    error = "WebSocket 101"
+                    error = "WS 成功 $successCount/3，平均 ${averageMs} ms"
                 )
             } else {
+                val lastError = attempts.lastOrNull { !it.success }?.error ?: "未知错误"
                 VlessWsResult(
                     ip = ip,
                     latencyMs = null,
                     success = false,
                     stage = "原生 TLS + WS",
-                    error = result.error ?: ("HTTP " + (result.statusCode ?: "无响应"))
+                    error = "WS 成功 $successCount/3，最后失败: $lastError"
                 )
             }
         } catch (e: Exception) {
@@ -173,7 +181,7 @@ class VlessWsScanner(
                 success = false,
                 stage = "原生 TLS + WS",
                 error = e.javaClass.simpleName +
-                    if (!e.message.isNullOrBlank()) ": " + e.message else ""
+                    if (!e.message.isNullOrBlank()) ": ${e.message}" else ""
             )
         }
     }
