@@ -229,9 +229,8 @@
         android:orientation="horizontal">
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:text="@string/result_title"
             android:textColor="?attr/boxTextPrimary"
             android:textSize="18sp"
@@ -239,11 +238,16 @@
 
         <TextView
             android:id="@+id/candidateHintText"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="TCPing → Top 30 → 质量评分 → Top 10 → 真实 VLESS + WS"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:gravity="end|center_vertical"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="TCPing → Top30 → 质量评分 → Top10 → VLESS + WS"
             android:textColor="?attr/boxTextMuted"
-            android:textSize="11sp" />
+            android:textSize="10sp" />
     </LinearLayout>
 
     <ScrollView
