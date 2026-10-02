@@ -608,7 +608,7 @@ class MainActivity : Activity() {
                     verified?.let { "${it.tcpConnectMs}" } ?: "失败",
                     verified?.let { "${it.tlsHandshakeMs}" } ?: "-",
                     verified?.let { "${it.ttfbMs}" } ?: "-",
-                    verified?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
+                    verified?.let { String.format(Locale.US, "%.1f MB/s", it.downloadSpeedMbps) } ?: "-",
                     verified?.pop ?: "-",
                     header = false,
                     columnWidths = realNodeWidths,
