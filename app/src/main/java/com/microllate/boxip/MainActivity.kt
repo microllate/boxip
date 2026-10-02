@@ -534,6 +534,11 @@ class MainActivity : Activity() {
         selectedIp: String?,
         clearFirst: Boolean = true
     ) {
+        // Re-rendering the history must not make the user leave or jump within
+        // the current result page. Preserve the ScrollView position exactly.
+        val scrollView = (resultTable.parent?.parent as? android.widget.ScrollView)
+        val savedScrollY = scrollView?.scrollY ?: 0
+
         if (clearFirst) {
             resultTable.removeAllViews()
         }
@@ -646,6 +651,11 @@ class MainActivity : Activity() {
             row.addView(divider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)))
 
             resultTable.addView(row)
+        }
+
+        // Restore the exact position after rebuilding the history rows.
+        scrollView?.post {
+            scrollView.scrollTo(0, savedScrollY)
         }
     }
 
