@@ -390,9 +390,6 @@ class MainActivity : Activity() {
                         ) { verified ->
                             if (verified.success) {
                                 saveSuccessfulVlessToHistory(verified, metricsByIp)
-                                runOnUiThread {
-                                    renderHistorySection(resultTable, getPersistedSelectedIp(), clearFirst = false)
-                                }
                             }
                         }
                     }
@@ -433,14 +430,7 @@ class MainActivity : Activity() {
                             ""
                         }
 
-                        renderRealNodeSection(
-                            resultTable,
-                            realNodeCandidates,
-                            realNodeResults,
-                            selectedIp,
-                            vlessResults
-                        )
-                        renderHistorySection(resultTable, selectedIp, clearFirst = false)
+                        renderHistorySection(resultTable, selectedIp, clearFirst = true)
                         saveLastResults(
                             ranges.ipv4.size,
                             candidates.size,
@@ -607,6 +597,16 @@ class MainActivity : Activity() {
                 minHeight = 0
                 minimumHeight = 0
                 setPadding(dp(10), 0, dp(10), 0)
+                setBackgroundResource(
+                    if (retestingHistoryIps.contains(item.ip)) R.drawable.bg_surface_alt
+                    else R.drawable.bg_primary_button
+                )
+                setTextColor(
+                    getThemeColor(
+                        if (retestingHistoryIps.contains(item.ip)) R.attr.boxTextPrimary
+                        else R.attr.boxOnAccent
+                    )
+                )
                 isEnabled = !retestingHistoryIps.contains(item.ip)
                 setOnClickListener { retestHistoryIp(item.ip, resultTable) }
             }
@@ -618,6 +618,8 @@ class MainActivity : Activity() {
                 minHeight = 0
                 minimumHeight = 0
                 setPadding(dp(10), 0, dp(10), 0)
+                setBackgroundResource(R.drawable.bg_primary_button)
+                setTextColor(getThemeColor(R.attr.boxOnAccent))
                 setOnClickListener { deleteHistoryIp(item.ip, resultTable) }
             }
             top.addView(deleteButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
@@ -1206,6 +1208,14 @@ class MainActivity : Activity() {
 
         spinner?.visibility = if (testing) View.VISIBLE else View.GONE
         button?.isEnabled = !testing
+        button?.setBackgroundResource(
+            if (testing) R.drawable.bg_surface_alt else R.drawable.bg_primary_button
+        )
+        button?.setTextColor(
+            getThemeColor(
+                if (testing) R.attr.boxTextPrimary else R.attr.boxOnAccent
+            )
+        )
     }
 
     private fun updateHistoryVlessMetric(
@@ -1294,7 +1304,10 @@ class MainActivity : Activity() {
                         result.latencyMs?.let {
                             updateHistoryVlessMetric(resultTable, ip, it)
                         }
+                        statusTextForHistory("单独验证成功：$ip · VLESS " + (result.latencyMs ?: "-") + " ms")
                     }
+                } else {
+                    statusTextForHistory("单独验证失败：$ip")
                 }
 
                 // Restore only this row's controls. The rest of the page is untouched.
