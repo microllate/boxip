@@ -17,7 +17,6 @@ import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
-import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Spinner
@@ -591,13 +590,7 @@ class MainActivity : Activity() {
             top.addView(ipText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
             if (retestingHistoryIps.contains(item.ip)) {
-                top.addView(ProgressBar(this).apply {
-                    isIndeterminate = true
-                    setPadding(0, 0, 0, 0)
-                    indeterminateTintList = android.content.res.ColorStateList.valueOf(
-                        Color.rgb(96, 165, 250)
-                    )
-                }, LinearLayout.LayoutParams(dp(22), dp(22)).apply {
+                top.addView(RetestSpinnerView(this), LinearLayout.LayoutParams(dp(22), dp(22)).apply {
                     gravity = Gravity.CENTER_VERTICAL
                     marginEnd = dp(10)
                     marginStart = dp(2)
@@ -1425,6 +1418,47 @@ class MainActivity : Activity() {
             accentColor = Color.rgb(112, 181, 242),
             idleColor = Color.rgb(105, 115, 130)
         )
+    }
+
+    private class RetestSpinnerView(context: Context) : View(context) {
+
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f * resources.displayMetrics.density
+            strokeCap = Paint.Cap.ROUND
+            color = Color.rgb(96, 165, 250)
+        }
+        private val rect = RectF()
+        private var startTime = 0L
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            startTime = android.os.SystemClock.uptimeMillis()
+            postInvalidateOnAnimation()
+        }
+
+        override fun onDetachedFromWindow() {
+            removeCallbacks(null)
+            super.onDetachedFromWindow()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val inset = paint.strokeWidth / 2f + 1f
+            rect.set(inset, inset, width - inset, height - inset)
+
+            val elapsed = android.os.SystemClock.uptimeMillis() - startTime
+            val rotation = (elapsed % 900L) * 360f / 900f
+
+            canvas.drawArc(
+                rect,
+                rotation,
+                270f,
+                false,
+                paint
+            )
+            postInvalidateOnAnimation()
+        }
     }
 
     private class IpSelectorDrawable(
