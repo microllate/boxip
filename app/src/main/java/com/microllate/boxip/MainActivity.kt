@@ -371,10 +371,10 @@ class MainActivity : Activity() {
                         emptyList()
                     } else {
                         runOnUiThread {
-                            statusText.text = "第二阶段 · 入口质量 + 真实 VLESS + WS 验证"
+                            statusText.text = "第三阶段 · 真实 VLESS + WS 验证"
                             resultText.visibility = View.VISIBLE
                             resultText.text =
-                                "质量评分 Top ${realNodeCandidates.size} 个入口，继续进行真实 sing-box → TLS → WS → VLESS 验证…"
+                                "第二阶段完成，正在验证 Top ${realNodeCandidates.size} 个入口：真实 sing-box → TLS → WS → VLESS…"
                         }
 
                         val metricsByIp = regionResults.associateBy { it.ip }
