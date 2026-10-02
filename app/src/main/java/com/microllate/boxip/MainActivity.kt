@@ -1295,16 +1295,22 @@ class MainActivity : Activity() {
 
         executor.execute {
             val result = runCatching {
-                VlessWsScanner(
-                    network = physicalNetwork,
-                    timeoutMs = 8_000,
-                    concurrency = 1
-                ).scan(
-                    ips = listOf(ip),
-                    host = "life.mozzarella.top",
-                    path = "",
-                    interfaceName = physicalInterface
-                ).firstOrNull()
+                var lastResult: VlessWsResult? = null
+                repeat(3) {
+                    val attempt = VlessWsScanner(
+                        network = physicalNetwork,
+                        timeoutMs = 8_000,
+                        concurrency = 1
+                    ).scan(
+                        ips = listOf(ip),
+                        host = "life.mozzarella.top",
+                        path = "",
+                        interfaceName = physicalInterface
+                    ).firstOrNull()
+                    lastResult = attempt
+                    if (attempt?.success == true) return@repeat
+                }
+                lastResult
             }.getOrNull()
 
             runOnUiThread {
