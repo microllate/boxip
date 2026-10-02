@@ -1248,7 +1248,6 @@ class MainActivity : Activity() {
             ?.interfaceName
 
         executor.execute {
-            val attemptLogs = mutableListOf<String>()
             val result = runCatching {
                 var result: VlessWsResult? = null
                 for (attemptIndex in 0 until 3) {
@@ -1262,14 +1261,6 @@ class MainActivity : Activity() {
                         path = "",
                         interfaceName = physicalInterface
                     ).firstOrNull()
-
-                    if (attempt != null) {
-                        attemptLogs += "第 " + (attemptIndex + 1) + " 次：" +
-                            attempt.stage + " · " + (attempt.error ?: "无错误信息")
-                    } else {
-                        attemptLogs += "第 " + (attemptIndex + 1) + " 次：未返回验证结果"
-                    }
-
                     result = attempt
                     if (attempt?.success == true) break
                 }
@@ -1298,16 +1289,7 @@ class MainActivity : Activity() {
                         statusTextForHistory("单独验证成功：$ip · VLESS " + (result.latencyMs ?: "-") + " ms")
                     }
                 } else {
-                    statusTextForHistory(
-                        if (attemptLogs.isEmpty()) {
-                            "单独验证失败：$ip"
-                        } else {
-                            "单独验证失败：$ip\n" + attemptLogs.joinToString("\n")
-                        }
-                    )
-                    val resultText = findViewById<TextView>(R.id.resultText)
-                    resultText.visibility = View.VISIBLE
-                    resultText.text = "单独验证日志\n" + attemptLogs.joinToString("\n")
+                    statusTextForHistory("单独验证失败：$ip")
                 }
 
                 // Restore only this row's controls. The rest of the page is untouched.
