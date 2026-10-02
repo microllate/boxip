@@ -572,6 +572,7 @@ class MainActivity : Activity() {
         history.forEach { item ->
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
+                tag = "history_row:${item.ip}"
                 setPadding(dp(4), dp(8), dp(4), dp(8))
             }
 
@@ -589,15 +590,18 @@ class MainActivity : Activity() {
             }
             top.addView(ipText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-            if (retestingHistoryIps.contains(item.ip)) {
-                top.addView(RetestSpinnerView(this), LinearLayout.LayoutParams(dp(22), dp(22)).apply {
-                    gravity = Gravity.CENTER_VERTICAL
-                    marginEnd = dp(10)
-                    marginStart = dp(2)
-                })
+            val retestSpinner = RetestSpinnerView(this).apply {
+                tag = "retest_spinner:${item.ip}"
+                visibility = if (retestingHistoryIps.contains(item.ip)) View.VISIBLE else View.GONE
             }
+            top.addView(retestSpinner, LinearLayout.LayoutParams(dp(22), dp(22)).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                marginEnd = dp(10)
+                marginStart = dp(2)
+            })
 
             val testButton = Button(this).apply {
+                tag = "retest_button:${item.ip}"
                 text = "重测"
                 textSize = 11f
                 minHeight = 0
@@ -1189,6 +1193,33 @@ class MainActivity : Activity() {
         prefs.edit().putString(KEY_HISTORY, serializeHistory(history)).commit()
     }
 
+    private fun setHistoryRetestState(
+        resultTable: LinearLayout,
+        ip: String,
+        testing: Boolean
+    ) {
+        val row = resultTable.findViewWithTag<View>("history_row:$ip") as? LinearLayout
+            ?: return
+
+        val spinner = row.findViewWithTag<View>("retest_spinner:$ip")
+        val button = row.findViewWithTag<Button>("retest_button:$ip")
+
+        spinner?.visibility = if (testing) View.VISIBLE else View.GONE
+        button?.isEnabled = !testing
+    }
+
+    private fun updateHistoryVlessMetric(
+        resultTable: LinearLayout,
+        ip: String,
+        latencyMs: Long
+    ) {
+        val row = resultTable.findViewWithTag<View>("history_row:$ip") as? LinearLayout
+            ?: return
+        val metricsRow = row.getChildAt(1) as? LinearLayout ?: return
+        val vlessText = metricsRow.getChildAt(0) as? TextView ?: return
+        vlessText.text = "VLESS ${latencyMs} ms"
+    }
+
     private fun deleteHistoryIp(ip: String, resultTable: LinearLayout) {
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
         val history = parseHistory(prefs.getString(KEY_HISTORY, null)).filterNot { it.ip == ip }
@@ -1204,6 +1235,11 @@ class MainActivity : Activity() {
     }
 
     private fun retestHistoryIp(ip: String, resultTable: LinearLayout) {
+        if (!retestingHistoryIps.add(ip)) return
+
+        // Do not rebuild the result page. Only toggle the local spinner/button state.
+        setHistoryRetestState(resultTable, ip, true)
+
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
         val physicalNetwork = connectivityManager.allNetworks.firstOrNull { network ->
             val capabilities = connectivityManager.getNetworkCapabilities(network)
@@ -1216,13 +1252,14 @@ class MainActivity : Activity() {
         }
 
         if (physicalNetwork == null) {
-            statusTextForHistory("重测失败：没有可用的物理网络")
+            retestingHistoryIps.remove(ip)
+            setHistoryRetestState(resultTable, ip, false)
             return
         }
 
-        val physicalInterface = connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
-        if (!retestingHistoryIps.add(ip)) return
-        renderHistorySection(resultTable, getPersistedSelectedIp())
+        val physicalInterface = connectivityManager
+            .getLinkProperties(physicalNetwork)
+            ?.interfaceName
 
         executor.execute {
             val result = runCatching {
@@ -1240,6 +1277,7 @@ class MainActivity : Activity() {
 
             runOnUiThread {
                 retestingHistoryIps.remove(ip)
+
                 if (result?.success == true) {
                     val old = parseHistory(
                         getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
@@ -1253,9 +1291,14 @@ class MainActivity : Activity() {
                                 testedAt = System.currentTimeMillis()
                             )
                         )
+                        result.latencyMs?.let {
+                            updateHistoryVlessMetric(resultTable, ip, it)
+                        }
                     }
                 }
-                renderHistorySection(resultTable, getPersistedSelectedIp())
+
+                // Restore only this row's controls. The rest of the page is untouched.
+                setHistoryRetestState(resultTable, ip, false)
             }
         }
     }
