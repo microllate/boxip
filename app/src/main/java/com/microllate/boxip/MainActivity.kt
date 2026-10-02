@@ -459,11 +459,67 @@ class MainActivity : Activity() {
         val downloadResult: CfstDownloadResult?
     )
 
-    private fun renderHistorySection(
+    private fun renderVlessAndHistorySection(
         resultTable: LinearLayout,
-        selectedIp: String?
+        selectedIp: String?,
+        vlessResults: List<VlessWsResult>
     ) {
         resultTable.removeAllViews()
+        resultTable.visibility = View.VISIBLE
+        renderVlessSection(resultTable, vlessResults)
+        renderHistorySection(resultTable, selectedIp, clearFirst = false)
+    }
+
+    private fun renderVlessSection(
+        resultTable: LinearLayout,
+        vlessResults: List<VlessWsResult>
+    ) {
+        if (vlessResults.isEmpty()) return
+
+        val domainSection = TextView(this).apply {
+            text = "真实节点域名验证 · life.mozzarella.top"
+            setTextColor(getThemeColor(R.attr.boxTextPrimary))
+            textSize = 13f
+            setPadding(dp(4), dp(18), dp(4), dp(8))
+        }
+        resultTable.addView(domainSection)
+
+        val vlessSection = TextView(this).apply {
+            text = "真实 VLESS + WS 验证"
+            setTextColor(getThemeColor(R.attr.boxTextPrimary))
+            textSize = 13f
+            setPadding(dp(4), 0, dp(4), dp(8))
+        }
+        resultTable.addView(vlessSection)
+
+        vlessResults
+            .sortedWith(compareBy<VlessWsResult> { !it.success }.thenBy { it.latencyMs ?: Long.MAX_VALUE })
+            .forEach { result ->
+                val row = TextView(this).apply {
+                    text = if (result.success) {
+                        "✓ ${result.ip}   成功   " +
+                            (result.latencyMs?.let { "${it} ms" } ?: "-") +
+                            "   ${result.stage}"
+                    } else {
+                        "✕ ${result.ip}   ${result.error ?: "失败"}"
+                    }
+                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                    textSize = 12f
+                    setPadding(dp(4), dp(6), dp(4), dp(6))
+                    maxLines = 4
+                }
+                resultTable.addView(row)
+            }
+    }
+
+    private fun renderHistorySection(
+        resultTable: LinearLayout,
+        selectedIp: String?,
+        clearFirst: Boolean = true
+    ) {
+        if (clearFirst) {
+            resultTable.removeAllViews()
+        }
         resultTable.visibility = View.VISIBLE
 
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
@@ -706,13 +762,25 @@ class MainActivity : Activity() {
         }
 
         val historyJson = serializeHistory(existing)
+        val vlessJson = JSONArray().apply {
+            vlessResults.forEach { result ->
+                put(JSONObject().apply {
+                    put("ip", result.ip)
+                    put("latencyMs", result.latencyMs ?: -1L)
+                    put("success", result.success)
+                    put("stage", result.stage)
+                    put("error", result.error ?: "")
+                })
+            }
+        }
         val snapshot = JSONObject().apply {
-            put("version", 3)
+            put("version", 4)
             put("ranges", ranges)
             put("candidates", candidates)
             put("tcp", tcp)
             put("downloads", downloads)
             put("history", JSONArray(historyJson))
+            put("vlessResults", vlessJson)
             put("selectedIp", selectedIp ?: "")
             put("savedAt", System.currentTimeMillis())
         }
@@ -720,6 +788,7 @@ class MainActivity : Activity() {
         prefs.edit()
             .putString(KEY_RESULTS_SNAPSHOT, snapshot.toString())
             .putString(KEY_HISTORY, historyJson)
+            .putString("vlessResults", vlessJson.toString())
             .putString("selectedIp", selectedIp ?: "")
             .putLong("savedAt", System.currentTimeMillis())
             .commit()
@@ -756,8 +825,16 @@ class MainActivity : Activity() {
         }
 
         val history = parseHistory(prefs.getString(KEY_HISTORY, null))
-        if (history.isNotEmpty()) {
-            statusText.text = "已恢复历史可用节点"
+        val vlessRaw = snapshot?.optJSONArray("vlessResults")?.toString()
+            ?: prefs.getString("vlessResults", null)
+        val vlessResults = parseRestoredVlessResults(vlessRaw)
+
+        if (history.isNotEmpty() || vlessResults.isNotEmpty()) {
+            statusText.text = if (history.isNotEmpty()) {
+                "已恢复历史可用节点"
+            } else {
+                "已恢复最近一次 VLESS + WS 验证日志"
+            }
             resultText.visibility = View.GONE
         } else {
             statusText.text = "暂无历史可用节点"
@@ -765,7 +842,19 @@ class MainActivity : Activity() {
             resultText.text = "暂无通过真实 VLESS + WS 验证的节点。"
         }
 
-        renderHistorySection(resultTable, selectedIp)
+        renderVlessAndHistorySection(
+            resultTable,
+            selectedIp,
+            vlessResults.map {
+                VlessWsResult(
+                    ip = it.ip,
+                    latencyMs = it.latencyMs,
+                    success = it.success,
+                    stage = it.stage,
+                    error = it.error
+                )
+            }
+        )
     }
 
     private fun parseRestoredDownloadResults(raw: String?): List<RestoredDownloadResult> {
