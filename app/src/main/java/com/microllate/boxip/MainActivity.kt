@@ -593,10 +593,14 @@ class MainActivity : Activity() {
             if (retestingHistoryIps.contains(item.ip)) {
                 top.addView(ProgressBar(this).apply {
                     isIndeterminate = true
-                    setPadding(0, 0, dp(6), 0)
-                }, LinearLayout.LayoutParams(dp(24), dp(24)).apply {
+                    setPadding(0, 0, 0, 0)
+                    indeterminateTintList = android.content.res.ColorStateList.valueOf(
+                        Color.rgb(96, 165, 250)
+                    )
+                }, LinearLayout.LayoutParams(dp(22), dp(22)).apply {
                     gravity = Gravity.CENTER_VERTICAL
-                    marginEnd = dp(6)
+                    marginEnd = dp(10)
+                    marginStart = dp(2)
                 })
             }
 
