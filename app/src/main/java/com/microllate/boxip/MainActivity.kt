@@ -367,7 +367,7 @@ class MainActivity : Activity() {
                     if (selectedRegion.pops.isEmpty()) {
                         downloadCandidates = verifiedCandidates
                         runOnUiThread {
-                            tcpValue.text = verifiedCandidates.size.toString()
+                            tcpValue.text = initialCandidates.size.toString()
                             statusText.text = "第三阶段 · Cloudflare 入口质量"
                             stageProgress.visibility = View.VISIBLE
                             stageProgress.progress = 0
@@ -393,7 +393,7 @@ class MainActivity : Activity() {
                         val verifiedResults = results.filter { it.ip in verifiedIps }
 
                         runOnUiThread {
-                            tcpValue.text = verifiedCandidates.size.toString()
+                            tcpValue.text = initialCandidates.size.toString()
                             statusText.text = "第三阶段 · ${selectedRegion.label} PoP 探索"
                         }
                         appendScanLog(
