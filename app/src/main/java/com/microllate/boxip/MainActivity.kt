@@ -316,19 +316,64 @@ class MainActivity : Activity() {
                         initialCandidates = results.shuffled().take(selectedRegion.candidateCount)
                     }
 
+                    // Stage 2: verify that the TCP-qualified IP can actually serve the
+                    // current VLESS + WebSocket transport before spending time on quality tests.
+                    val physicalInterface =
+                        connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
+
+                    val vlessResults = if (initialCandidates.isEmpty()) {
+                        emptyList()
+                    } else {
+                        runOnUiThread {
+                            statusText.text = "第二阶段 · 真实 VLESS + WS 验证"
+                        }
+                        appendScanLog(
+                            "第二阶段开始 · 原生 TLS → WS · ${initialCandidates.size} 个入口"
+                        )
+
+                        VlessWsScanner(
+                            network = physicalNetwork,
+                            timeoutMs = 8_000,
+                            concurrency = 4
+                        ).scan(
+                            ips = initialCandidates.map { it.ip },
+                            host = "life.mozzarella.top",
+                            path = "",
+                            interfaceName = physicalInterface
+                        ) { result ->
+                            appendScanLog(
+                                "VLESS ${result.ip} · " +
+                                    if (result.success) {
+                                        "成功 · ${result.latencyMs ?: "-"} ms · ${result.stage}"
+                                    } else {
+                                        "失败 · ${result.stage} · ${result.error ?: "未知错误"}"
+                                    }
+                            )
+                        }
+                    }
+
+                    val vlessByIp = vlessResults.associateBy { it.ip }
+                    val verifiedCandidates = initialCandidates.filter {
+                        vlessByIp[it.ip]?.success == true
+                    }
+
+                    appendScanLog(
+                        "第二阶段完成 · VLESS + WS 成功 ${verifiedCandidates.size} / ${initialCandidates.size}"
+                    )
+
                     val downloadCandidates: List<CfstScanResult>
                     val discoveryResults: List<CfstDownloadResult>
 
                     if (selectedRegion.pops.isEmpty()) {
-                        downloadCandidates = initialCandidates
+                        downloadCandidates = verifiedCandidates
                         runOnUiThread {
-                            tcpValue.text = initialCandidates.size.toString()
-                            statusText.text = "第二阶段 · Cloudflare 入口质量"
+                            tcpValue.text = verifiedCandidates.size.toString()
+                            statusText.text = "第三阶段 · Cloudflare 入口质量"
                             stageProgress.visibility = View.VISIBLE
                             stageProgress.progress = 0
                         }
                         appendScanLog(
-                            "第二阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${downloadCandidates.size} 个 IP"
+                            "第三阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${downloadCandidates.size} 个 IP"
                         )
 
                         discoveryResults = CfstDownloader(
@@ -344,12 +389,15 @@ class MainActivity : Activity() {
                             }
                         }
                     } else {
+                        val verifiedIps = verifiedCandidates.map { it.ip }.toSet()
+                        val verifiedResults = results.filter { it.ip in verifiedIps }
+
                         runOnUiThread {
-                            tcpValue.text = results.size.toString()
-                            statusText.text = "第二阶段 · ${selectedRegion.label} PoP 探索"
+                            tcpValue.text = verifiedCandidates.size.toString()
+                            statusText.text = "第三阶段 · ${selectedRegion.label} PoP 探索"
                         }
                         appendScanLog(
-                            "第二阶段开始 · ${selectedRegion.label} PoP 探索 · ${initialCandidates.size} 个候选"
+                            "第三阶段开始 · ${selectedRegion.label} PoP 探索 · ${verifiedCandidates.size} 个候选"
                         )
 
                         discoveryResults = CfstDownloader(
@@ -359,7 +407,7 @@ class MainActivity : Activity() {
                             connectTimeoutMs = 3_000,
                             probeTimeoutMs = 3_000,
                             concurrency = 8
-                        ).download(initialCandidates.map { it.ip })
+                        ).download(verifiedCandidates.map { it.ip })
 
                         val matchingIps = discoveryResults
                             .filter { it.pop in selectedRegion.pops }
@@ -372,15 +420,16 @@ class MainActivity : Activity() {
                             .map { it.ip }
                             .toSet()
 
-                        downloadCandidates = results.filter { it.ip in matchingIps }
+                        downloadCandidates = verifiedResults
+                            .filter { it.ip in matchingIps }
                             .sortedBy { matchingIps.indexOf(it.ip) }
 
                         runOnUiThread {
-                            statusText.text = "第二阶段 · ${selectedRegion.label} 入口质量"
+                            statusText.text = "第三阶段 · ${selectedRegion.label} 入口质量"
                             resultText.text = if (downloadCandidates.isEmpty()) {
                                 "本次探索未观察到 ${selectedRegion.label}。Cloudflare Anycast 无法强制指定 PoP，可换网络或稍后重试。"
                             } else {
-                                "发现 ${downloadCandidates.size} 个 ${selectedRegion.label} 入口，正在进行 30 秒完整质量测试…"
+                                "发现 ${downloadCandidates.size} 个 ${selectedRegion.label} 入口，正在进行完整质量测试…"
                             }
                         }
                     }
@@ -408,9 +457,8 @@ class MainActivity : Activity() {
                     }
                     val resultByIp = regionResults.associateBy { it.ip }
 
-                    // Stage 2 ranking is deliberately separated from CfstDownloader:
-                    // the downloader only measures raw metrics, while this scorer
-                    // turns TCP/TLS/TTFB/download/stability into one quality score.
+                    // Stage 3 is the final quality ranking. Every entry here has already
+                    // passed the TCP gate and the real VLESS + WS verification.
                     val qualityResults = CfstQualityScorer()
                         .rank(regionResults.filter { it.minTcpConnectMs < 200L })
                     val qualityByIp = qualityResults.associateBy { it.result.ip }
@@ -418,7 +466,7 @@ class MainActivity : Activity() {
                     runOnUiThread { stageProgress.progress = 100 }
 
                     appendScanLog(
-                        "第二阶段完成 · 完成质量评分 · Top ${qualityResults.take(10).size} 进入真实验证"
+                        "第三阶段完成 · 完成最终质量评分 · Top ${qualityResults.take(10).size}"
                     )
 
                     sampler.record(
@@ -451,64 +499,22 @@ class MainActivity : Activity() {
                             .thenBy { it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE }
                     )
 
+                    // Final Top 10 are now produced by the original quality ranking.
+                    // VLESS + WS has already been verified before this ranking stage.
                     val realNodeCandidates = qualityResults
                         .take(10)
                         .map { it.result }
 
-                    // Keep the existing first/second-stage selection completely intact.
-                    // Only the final Top 10 are passed to the real VLESS + WS verifier.
-                    val physicalInterface =
-                        connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
-
-                    val vlessResults = if (realNodeCandidates.isEmpty()) {
-                        emptyList()
-                    } else {
-                        runOnUiThread {
-                            statusText.text = "第三阶段 · 真实 VLESS + WS 验证"
-                        }
-                        appendScanLog(
-                            "第三阶段开始 · 原生 TLS → WS · ${realNodeCandidates.size} 个入口"
-                        )
-
-                        VlessWsScanner(
-                            network = physicalNetwork,
-                            timeoutMs = 8_000,
-                            concurrency = 4
-                        ).scan(
-                            ips = realNodeCandidates.map { it.ip },
-                            host = "life.mozzarella.top",
-                            path = "",
-                            interfaceName = physicalInterface
-                        ) { result ->
-                            appendScanLog(
-                                "VLESS ${result.ip} · " +
-                                    if (result.success) {
-                                        "成功 · ${result.latencyMs ?: "-"} ms · ${result.stage}"
-                                    } else {
-                                        "失败 · ${result.stage} · ${result.error ?: "未知错误"}"
-                                    }
-                            )
-                        }
-                    }
-
-                    appendScanLog(
-                        "第三阶段完成 · VLESS + WS 成功 ${vlessResults.count { it.success }} / ${vlessResults.size}"
-                    )
-
-                    // Keep the existing result table data for the first/second stages.
-                    // The final selected IP is decided only by a successful real
-                    // VLESS + WS response.
                     val realNodeResults = realNodeCandidates.mapNotNull { candidate ->
                         regionResults.firstOrNull { it.ip == candidate.ip }
                     }
 
-                    val selectedIp = vlessResults
-                        .asSequence()
-                        .filter { it.success }
-                        .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
+                    val selectedIp = qualityResults
                         .firstOrNull()
+                        ?.result
                         ?.ip
                         ?: getPersistedSelectedIp()
+
                     if (selectedIp != null) {
                         BoxIpDnsServer.setCurrentIp(selectedIp)
                     }
