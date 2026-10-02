@@ -16,31 +16,15 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <LinearLayout
+        <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginEnd="10dp"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/app_name"
-                android:textColor="?attr/boxTextPrimary"
-                android:textSize="30sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.02" />
-
-            <TextView
-                android:id="@+id/statusText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/app_description"
-                android:textColor="?attr/boxTextSecondary"
-                android:textSize="14sp" />
-        </LinearLayout>
+            android:text="@string/app_name"
+            android:textColor="?attr/boxTextPrimary"
+            android:textSize="30sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.02" />
 
         <TextView
             android:id="@+id/themeButton"
@@ -57,6 +41,15 @@
             android:textColor="?attr/boxTextPrimary"
             android:textSize="13sp" />
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:text="@string/app_description"
+        android:textColor="?attr/boxTextSecondary"
+        android:textSize="14sp" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -112,113 +105,23 @@
             android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/rangesValue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="—"
-                android:textColor="?attr/boxTextPrimary"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="@string/stat_ranges"
-                android:textColor="?attr/boxTextSecondary"
-                android:textSize="11sp" />
+            <TextView android:id="@+id/rangesValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textColor="?attr/boxTextPrimary" android:textSize="20sp" android:textStyle="bold" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="@string/stat_ranges" android:textColor="?attr/boxTextSecondary" android:textSize="11sp" />
         </LinearLayout>
-
-        <View
-            android:layout_width="1dp"
-            android:layout_height="42dp"
-            android:background="?attr/boxDivider" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/candidatesValue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="—"
-                android:textColor="?attr/boxTextPrimary"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="@string/stat_candidates"
-                android:textColor="?attr/boxTextSecondary"
-                android:textSize="11sp" />
+        <View android:layout_width="1dp" android:layout_height="42dp" android:background="?attr/boxDivider" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <TextView android:id="@+id/candidatesValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textColor="?attr/boxTextPrimary" android:textSize="20sp" android:textStyle="bold" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="@string/stat_candidates" android:textColor="?attr/boxTextSecondary" android:textSize="11sp" />
         </LinearLayout>
-
-        <View
-            android:layout_width="1dp"
-            android:layout_height="42dp"
-            android:background="?attr/boxDivider" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/tcpValue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="—"
-                android:textColor="?attr/boxTextPrimary"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="@string/stat_tcp"
-                android:textColor="?attr/boxTextSecondary"
-                android:textSize="11sp" />
+        <View android:layout_width="1dp" android:layout_height="42dp" android:background="?attr/boxDivider" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <TextView android:id="@+id/tcpValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textColor="?attr/boxTextPrimary" android:textSize="20sp" android:textStyle="bold" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="@string/stat_tcp" android:textColor="?attr/boxTextSecondary" android:textSize="11sp" />
         </LinearLayout>
-
-        <View
-            android:layout_width="1dp"
-            android:layout_height="42dp"
-            android:background="?attr/boxDivider" />
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/downloadValue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="—"
-                android:textColor="?attr/boxTextPrimary"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="@string/stat_download"
-                android:textColor="?attr/boxTextSecondary"
-                android:textSize="11sp" />
+        <View android:layout_width="1dp" android:layout_height="42dp" android:background="?attr/boxDivider" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <TextView android:id="@+id/downloadValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="—" android:textColor="?attr/boxTextPrimary" android:textSize="20sp" android:textStyle="bold" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="@string/stat_download" android:textColor="?attr/boxTextSecondary" android:textSize="11sp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -228,27 +131,8 @@
         android:layout_marginTop="18dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/result_title"
-            android:textColor="?attr/boxTextPrimary"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/candidateHintText"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="10dp"
-            android:gravity="end|center_vertical"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:text="TCPing → Top30 → 质量评分 → Top10 → VLESS + WS"
-            android:textColor="?attr/boxTextMuted"
-            android:textSize="10sp" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/result_title" android:textColor="?attr/boxTextPrimary" android:textSize="18sp" android:textStyle="bold" />
+        <TextView android:id="@+id/candidateHintText" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:gravity="end|center_vertical" android:maxLines="1" android:ellipsize="end" android:text="TCPing → Top30 → 质量评分 → Top10 → VLESS + WS" android:textColor="?attr/boxTextMuted" android:textSize="10sp" />
     </LinearLayout>
 
     <ScrollView
@@ -262,31 +146,9 @@
         android:paddingBottom="14dp"
         android:paddingStart="8dp"
         android:paddingEnd="8dp">
-
-        <LinearLayout
-            android:id="@+id/resultContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/resultText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:includeFontPadding="false"
-                android:lineSpacingExtra="6dp"
-                android:textColor="?attr/boxTextSecondary"
-                android:textSize="12sp"
-                android:text="等待测速…" />
-
-            <TableLayout
-                android:id="@+id/resultTable"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:visibility="gone" />
+        <LinearLayout android:id="@+id/resultContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+            <TextView android:id="@+id/resultText" android:layout_width="match_parent" android:layout_height="wrap_content" android:includeFontPadding="false" android:lineSpacingExtra="6dp" android:textColor="?attr/boxTextSecondary" android:textSize="12sp" android:text="等待测速…" />
+            <TableLayout android:id="@+id/resultTable" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:visibility="gone" />
         </LinearLayout>
-
     </ScrollView>
-
 </LinearLayout>
