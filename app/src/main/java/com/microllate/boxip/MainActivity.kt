@@ -478,7 +478,14 @@ class MainActivity : Activity() {
                                 } else {
                                     "测速完成 · ${selectedRegion.label}"
                                 }
-                                renderHistorySection(resultTable, selectedIp, clearFirst = true)
+                                renderRealNodeSection(
+                                    resultTable,
+                                    realNodeCandidates,
+                                    realNodeResults,
+                                    selectedIp,
+                                    vlessResults
+                                )
+                                renderHistorySection(resultTable, selectedIp, clearFirst = false)
 
                                 startButton.isEnabled = true
                                 themeButton.isEnabled = true
