@@ -964,18 +964,6 @@ class MainActivity : Activity() {
             )
             renderHistorySection(resultTable, selectedIp, clearFirst = false)
         } else {
-            renderVlessSection(
-                resultTable,
-                vlessResults.map {
-                    VlessWsResult(
-                        ip = it.ip,
-                        latencyMs = it.latencyMs,
-                        success = it.success,
-                        stage = it.stage,
-                        error = it.error
-                    )
-                }
-            )
             renderHistorySection(resultTable, selectedIp, clearFirst = false)
         }
     }
@@ -1095,38 +1083,12 @@ class MainActivity : Activity() {
                         { ip -> selectIp(ip, resultTable) }
                     } else {
                         null
-                    }
+                    },
+                    failedSelector = vlessByIp[candidate.ip]?.success != true
                 )
             )
         }
 
-        if (vlessResults.isNotEmpty()) {
-            val vlessSection = TextView(this).apply {
-                text = "真实 VLESS + WS 验证"
-                setTextColor(getThemeColor(R.attr.boxTextPrimary))
-                textSize = 13f
-                setPadding(dp(4), dp(18), dp(4), dp(8))
-            }
-            resultTable.addView(vlessSection)
-
-            vlessResults
-                .sortedWith(compareBy<RestoredVlessResult> { !it.success }.thenBy { it.latencyMs ?: Long.MAX_VALUE })
-                .forEach { result ->
-                    val row = TextView(this).apply {
-                        text = if (result.success) {
-                            "✓ " + result.ip + "   成功   " +
-                                (result.latencyMs?.let { "${it} ms" } ?: "-")
-                        } else {
-                            "✕ " + result.ip + "   " + (result.error ?: "失败")
-                        }
-                        setTextColor(getThemeColor(R.attr.boxTextSecondary))
-                        textSize = 12f
-                        setPadding(dp(4), dp(6), dp(4), dp(6))
-                        maxLines = 2
-                    }
-                    resultTable.addView(row)
-                }
-        }
     }
 
     private fun parseRestoredVlessResults(raw: String?): List<RestoredVlessResult> {
