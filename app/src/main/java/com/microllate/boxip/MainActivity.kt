@@ -400,7 +400,8 @@ class MainActivity : Activity() {
                     // Stage 2 ranking is deliberately separated from CfstDownloader:
                     // the downloader only measures raw metrics, while this scorer
                     // turns TCP/TLS/TTFB/download/stability into one quality score.
-                    val qualityResults = CfstQualityScorer().rank(regionResults)
+                    val qualityResults = CfstQualityScorer()
+                        .rank(regionResults.filter { it.tcpConnectMs < 200L })
                     val qualityByIp = qualityResults.associateBy { it.result.ip }
 
                     appendScanLog(
