@@ -42,7 +42,7 @@ class MainActivity : Activity() {
     )
 
     private val regionOptions = listOf(
-        RegionOption("自动", emptySet(), 10),
+        RegionOption("自动", emptySet(), 30),
         RegionOption("香港 HKG", setOf("HKG"), 100),
         RegionOption("日本 JP", setOf("NRT", "KIX", "FUK", "OKA"), 100),
         RegionOption("新加坡 SIN", setOf("SIN"), 100),
@@ -223,15 +223,15 @@ class MainActivity : Activity() {
                         results.firstOrNull { it.ip == ip }
                     }
 
-                    // Automatic mode keeps the existing Top 10 flow.
+                    // Automatic mode keeps a broader Top 30 pool for the second-stage quality analysis.
                     // Region mode first performs a short PoP discovery across
                     // a larger and more diverse pool. Anycast cannot force a
                     // specific PoP; we need to observe what this network reaches.
                     val initialCandidates = if (selectedRegion.pops.isEmpty()) {
                         buildList {
-                            addAll(retainedResults.distinctBy { it.ip }.take(10))
+                            addAll(retainedResults.distinctBy { it.ip }.take(30))
                             for (result in results) {
-                                if (size >= 10) break
+                                if (size >= 30) break
                                 if (none { it.ip == result.ip }) add(result)
                             }
                         }
