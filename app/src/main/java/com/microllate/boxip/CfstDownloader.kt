@@ -17,6 +17,7 @@ import java.util.concurrent.Executors
 data class CfstDownloadResult(
     val ip: String,
     val tcpConnectMs: Long,
+    val minTcpConnectMs: Long,
     val tlsHandshakeMs: Long,
     val ttfbMs: Long,
     val stabilityPercent: Double,
@@ -113,7 +114,9 @@ class CfstDownloader(
 
         if (successfulProbes.isEmpty()) return null
 
-        val avgTcpConnectMs = successfulProbes.map { it.tcpConnectMs }.average().roundToLong()
+        val tcpConnectTimes = successfulProbes.map { it.tcpConnectMs }
+        val avgTcpConnectMs = tcpConnectTimes.average().roundToLong()
+        val minTcpConnectMs = tcpConnectTimes.minOrNull() ?: avgTcpConnectMs
         val avgTlsHandshakeMs = successfulProbes.map { it.tlsHandshakeMs }.average().roundToLong()
         val avgTtfbMs = successfulProbes.map { it.ttfbMs }.average().roundToLong()
 
@@ -129,6 +132,7 @@ class CfstDownloader(
         return CfstDownloadResult(
             ip = ip,
             tcpConnectMs = avgTcpConnectMs,
+            minTcpConnectMs = minTcpConnectMs,
             tlsHandshakeMs = avgTlsHandshakeMs,
             ttfbMs = avgTtfbMs,
             stabilityPercent = stabilityPercent,
