@@ -155,6 +155,12 @@ class MainActivity : Activity() {
             recreate()
         }
 
+        stopScanButton.setOnClickListener {
+            scanStopRequested = true
+            it.isEnabled = false
+            statusText.text = "正在停止测速…"
+        }
+
         startButton.setOnClickListener {
             scanStopRequested = false
             startButton.isEnabled = false
