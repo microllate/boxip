@@ -333,7 +333,7 @@ class MainActivity : Activity() {
 
                         discoveryResults = CfstDownloader(
                             network = physicalNetwork,
-                            observationMs = 30_000,
+                            observationMs = 10_000,
                             probeIntervalMs = 5_000,
                             connectTimeoutMs = 3_000,
                             concurrency = 3
