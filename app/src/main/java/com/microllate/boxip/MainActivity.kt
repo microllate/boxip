@@ -224,7 +224,7 @@ class MainActivity : Activity() {
 
                     if (selectedRegion.pops.isEmpty()) {
                         // Automatic mode: stage 1 is now a strict low-latency discovery pass.
-                        // Test random batches of 300 and keep only TCP ≤ 250 ms. Continue
+                        // Test random batches of 300 and keep only TCP < 200 ms. Continue
                         // sampling new batches until 30 qualifying IPs have been found.
                         val testedIps = linkedSetOf<String>()
                         val fastIps = linkedMapOf<String, CfstScanResult>()
@@ -233,11 +233,11 @@ class MainActivity : Activity() {
                         runOnUiThread {
                             rangesValue.text = ranges.ipv4.size.toString()
                             candidatesValue.text = "0"
-                            statusText.text = "第一阶段 · TCP ≤ 250 ms 筛选"
-                            resultText.text = "随机测试 300 个 IP，正在寻找 TCP ≤ 250 ms 的入口…"
+                            statusText.text = "第一阶段 · TCP < 200 ms 筛选"
+                            resultText.text = "随机测试 300 个 IP，正在寻找 TCP < 200 ms 的入口…"
                         }
 
-                        appendScanLog("第一阶段开始 · 每批随机 300 IP · 目标 TCP ≤ 250 ms × 30")
+                        appendScanLog("第一阶段开始 · 每批随机 300 IP · 目标 TCP < 200 ms × 30")
 
                         while (fastIps.size < 30) {
                             batchIndex++
@@ -247,7 +247,7 @@ class MainActivity : Activity() {
                                 .filterNot(testedIps::contains)
 
                             if (batch.isEmpty()) {
-                                throw IllegalStateException("Cloudflare IP 地址池已耗尽，无法找到 30 个 TCP ≤ 250 ms 的 IP")
+                                throw IllegalStateException("Cloudflare IP 地址池已耗尽，无法找到 30 个 TCP < 200 ms 的 IP")
                             }
 
                             testedIps += batch
@@ -263,17 +263,17 @@ class MainActivity : Activity() {
                             results += batchResults
 
                             batchResults
-                                .filter { it.received > 0 && (it.latencyMs ?: Long.MAX_VALUE) <= 250L }
+                                .filter { it.received > 0 && (it.latencyMs ?: Long.MAX_VALUE) < 200L }
                                 .forEach { fastIps.putIfAbsent(it.ip, it) }
 
                             val found = minOf(fastIps.size, 30)
                             appendScanLog(
-                                "第 ${batchIndex} 批完成 · TCP ≤ 250 ms: ${found} / 30 · 本批测试 ${batch.size} · 累计 ${testedIps.size}"
+                                "第 ${batchIndex} 批完成 · TCP < 200 ms: ${found} / 30 · 本批测试 ${batch.size} · 累计 ${testedIps.size}"
                             )
 
                             runOnUiThread {
                                 candidatesValue.text = testedIps.size.toString()
-                                resultText.text = "已测试 ${testedIps.size} 个 IP，找到 TCP ≤ 250 ms：${found} / 30…"
+                                resultText.text = "已测试 ${testedIps.size} 个 IP，找到 TCP < 200 ms：${found} / 30…"
                             }
                         }
 
@@ -282,7 +282,7 @@ class MainActivity : Activity() {
                             .take(30)
 
                         appendScanLog(
-                            "第一阶段完成 · 累计测试 ${testedIps.size} 个 IP · TCP ≤ 250 ms 共 ${initialCandidates.size} 个"
+                            "第一阶段完成 · 累计测试 ${testedIps.size} 个 IP · TCP < 200 ms 共 ${initialCandidates.size} 个"
                         )
                     } else {
                         // Region mode keeps its existing discovery behavior.
