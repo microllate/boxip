@@ -828,15 +828,22 @@ class MainActivity : Activity() {
         val existing = parseHistory(prefs.getString(KEY_HISTORY, null)).toMutableList()
         val metricsByIp = realNodeResults.associateBy { it.ip }
 
-        vlessResults.filter { it.success }.forEach { verified ->
-            val metrics = metricsByIp[verified.ip]
+        // History must come from the final third-stage quality results,
+        // not from every IP that passed the second-stage VLESS + WS gate.
+        // Only keep entries that also passed the real VLESS + WS verification.
+        val vlessByIp = vlessResults.associateBy { it.ip }
+        realNodeCandidates.forEach { finalResult ->
+            val verified = vlessByIp[finalResult.ip]
+            if (verified?.success != true) return@forEach
+
+            val metrics = metricsByIp[finalResult.ip]
             val item = HistoryResult(
-                ip = verified.ip,
-                tcpMs = metrics?.tcpConnectMs ?: -1L,
-                tlsMs = metrics?.tlsHandshakeMs ?: -1L,
-                ttfbMs = metrics?.ttfbMs ?: -1L,
-                speed = metrics?.downloadSpeedMbps ?: 0.0,
-                pop = metrics?.pop,
+                ip = finalResult.ip,
+                tcpMs = metrics?.tcpConnectMs ?: finalResult.tcpConnectMs,
+                tlsMs = metrics?.tlsHandshakeMs ?: finalResult.tlsHandshakeMs,
+                ttfbMs = metrics?.ttfbMs ?: finalResult.ttfbMs,
+                speed = metrics?.downloadSpeedMbps ?: finalResult.downloadSpeedMbps,
+                pop = metrics?.pop ?: finalResult.pop,
                 vlessLatencyMs = verified.latencyMs ?: -1L,
                 testedAt = System.currentTimeMillis()
             )
