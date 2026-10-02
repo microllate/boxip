@@ -424,7 +424,14 @@ class MainActivity : Activity() {
                             ""
                         }
 
-                        renderHistorySection(resultTable, selectedIp)
+                        renderRealNodeSection(
+                            resultTable,
+                            realNodeCandidates,
+                            realNodeResults,
+                            selectedIp,
+                            vlessResults
+                        )
+                        renderHistorySection(resultTable, selectedIp, clearFirst = false)
                         saveLastResults(
                             ranges.ipv4.size,
                             candidates.size,
@@ -762,6 +769,8 @@ class MainActivity : Activity() {
         }
 
         val historyJson = serializeHistory(existing)
+        val realNodeCandidatesJson = serializeDownloadResults(realNodeCandidates)
+        val realNodeResultsJson = serializeDownloadResults(realNodeResults)
         val vlessJson = JSONArray().apply {
             vlessResults.forEach { result ->
                 put(JSONObject().apply {
@@ -780,6 +789,8 @@ class MainActivity : Activity() {
             put("tcp", tcp)
             put("downloads", downloads)
             put("history", JSONArray(historyJson))
+            put("realNodeCandidates", JSONArray(realNodeCandidatesJson))
+            put("realNodeResults", JSONArray(realNodeResultsJson))
             put("vlessResults", vlessJson)
             put("selectedIp", selectedIp ?: "")
             put("savedAt", System.currentTimeMillis())
@@ -788,6 +799,8 @@ class MainActivity : Activity() {
         prefs.edit()
             .putString(KEY_RESULTS_SNAPSHOT, snapshot.toString())
             .putString(KEY_HISTORY, historyJson)
+            .putString("realNodeCandidates", realNodeCandidatesJson)
+            .putString("realNodeResults", realNodeResultsJson)
             .putString("vlessResults", vlessJson.toString())
             .putString("selectedIp", selectedIp ?: "")
             .putLong("savedAt", System.currentTimeMillis())
@@ -825,15 +838,21 @@ class MainActivity : Activity() {
         }
 
         val history = parseHistory(prefs.getString(KEY_HISTORY, null))
+        val candidatesRaw = snapshot?.optJSONArray("realNodeCandidates")?.toString()
+            ?: prefs.getString("realNodeCandidates", null)
+        val resultsRaw = snapshot?.optJSONArray("realNodeResults")?.toString()
+            ?: prefs.getString("realNodeResults", null)
+        val candidates = parseRestoredDownloadResults(candidatesRaw)
+        val realNodeResults = parseRestoredDownloadResults(resultsRaw)
         val vlessRaw = snapshot?.optJSONArray("vlessResults")?.toString()
             ?: prefs.getString("vlessResults", null)
         val vlessResults = parseRestoredVlessResults(vlessRaw)
 
-        if (history.isNotEmpty() || vlessResults.isNotEmpty()) {
+        if (history.isNotEmpty() || candidates.isNotEmpty() || vlessResults.isNotEmpty()) {
             statusText.text = if (history.isNotEmpty()) {
                 "已恢复历史可用节点"
             } else {
-                "已恢复最近一次 VLESS + WS 验证日志"
+                "已恢复最近一次测速结果"
             }
             resultText.visibility = View.GONE
         } else {
@@ -842,19 +861,47 @@ class MainActivity : Activity() {
             resultText.text = "暂无通过真实 VLESS + WS 验证的节点。"
         }
 
-        renderVlessAndHistorySection(
-            resultTable,
-            selectedIp,
-            vlessResults.map {
-                VlessWsResult(
-                    ip = it.ip,
-                    latencyMs = it.latencyMs,
-                    success = it.success,
-                    stage = it.stage,
-                    error = it.error
-                )
-            }
-        )
+        if (candidates.isNotEmpty()) {
+            renderRestoredRealNodeResults(
+                resultTable,
+                candidates,
+                realNodeResults,
+                selectedIp,
+                vlessResults
+            )
+            renderHistorySection(resultTable, selectedIp, clearFirst = false)
+        } else {
+            renderVlessSection(
+                resultTable,
+                vlessResults.map {
+                    VlessWsResult(
+                        ip = it.ip,
+                        latencyMs = it.latencyMs,
+                        success = it.success,
+                        stage = it.stage,
+                        error = it.error
+                    )
+                }
+            )
+            renderHistorySection(resultTable, selectedIp, clearFirst = false)
+        }
+    }
+
+    private fun serializeDownloadResults(results: List<CfstDownloadResult>): String {
+        val array = JSONArray()
+        results.forEach { result ->
+            array.put(JSONObject().apply {
+                put("ip", result.ip)
+                put("tcpMs", result.tcpConnectMs)
+                put("tlsMs", result.tlsHandshakeMs)
+                put("ttfbMs", result.ttfbMs)
+                put("stability", result.stabilityPercent)
+                put("speed", result.downloadSpeedMbps)
+                put("durationMs", result.durationMs)
+                put("pop", result.pop ?: "")
+            })
+        }
+        return array.toString()
     }
 
     private fun parseRestoredDownloadResults(raw: String?): List<RestoredDownloadResult> {
