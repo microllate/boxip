@@ -823,43 +823,13 @@ class MainActivity : Activity() {
                         { ip -> selectIp(ip, resultTable) }
                     } else {
                         null
-                    }
+                    },
+                    failedSelector = vlessByIp[result.ip]?.success != true
                 )
             )
         }
 
-        if (vlessResults.isNotEmpty()) {
-            val vlessSection = TextView(this).apply {
-                text = "真实 VLESS + WS 验证"
-                setTextColor(getThemeColor(R.attr.boxTextPrimary))
-                textSize = 13f
-                setPadding(dp(4), dp(18), dp(4), dp(8))
-            }
-            resultTable.addView(vlessSection)
-
-            val sortedVlessResults = vlessResults.sortedWith(
-                compareBy<VlessWsResult> { !it.success }
-                    .thenBy { it.latencyMs ?: Long.MAX_VALUE }
-            )
-
-            sortedVlessResults.forEach { result ->
-                val row = TextView(this).apply {
-                    text = if (result.success) {
-                        "✓ " + result.ip + "   成功   " +
-                            (result.latencyMs?.let { "${it} ms" } ?: "-")
-                    } else {
-                        "✕ " + result.ip + "   " + (result.error ?: "失败")
-                    }
-                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
-                    textSize = 12f
-                    setPadding(dp(4), dp(6), dp(4), dp(6))
-                    maxLines = 2
-                }
-                resultTable.addView(row)
-            }
-        }
     }
-
     private fun saveLastResults(
         ranges: Int,
         candidates: Int,
@@ -1455,7 +1425,8 @@ class MainActivity : Activity() {
         columnWidths: IntArray,
         selectedIp: String? = null,
         showSelector: Boolean = false,
-        onSelect: ((String) -> Unit)? = null
+        onSelect: ((String) -> Unit)? = null,
+        failedSelector: Boolean = false
     ): LinearLayout {
         val row = LinearLayout(this)
         row.orientation = LinearLayout.HORIZONTAL
@@ -1475,16 +1446,27 @@ class MainActivity : Activity() {
                 ipCell.gravity = Gravity.CENTER_VERTICAL
 
                 val selector = TextView(this).apply {
-                    contentDescription = if (ip == selectedIp) {
+                    contentDescription = if (failedSelector) {
+                        "VLESS + WS 验证失败 $ip"
+                    } else if (ip == selectedIp) {
                         "当前使用 $ip"
                     } else {
                         "可用入口 $ip"
                     }
-                    background = createSelectorDrawable(ip == selectedIp)
-                    tag = ip
-                    isClickable = true
-                    isFocusable = true
-                    setOnClickListener { onSelect?.invoke(ip) }
+                    if (failedSelector) {
+                        text = "×"
+                        setTextColor(getThemeColor(R.attr.boxTextMuted))
+                        textSize = 14f
+                        gravity = Gravity.CENTER
+                        isClickable = false
+                        isFocusable = false
+                    } else {
+                        background = createSelectorDrawable(ip == selectedIp)
+                        tag = ip
+                        isClickable = true
+                        isFocusable = true
+                        setOnClickListener { onSelect?.invoke(ip) }
+                    }
                 }
 
                 ipCell.setOnClickListener { onSelect?.invoke(ip) }
