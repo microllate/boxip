@@ -25,8 +25,8 @@ data class VlessWsResult(
 /**
  * Experimental real-node probe.
  *
- * One temporary sing-box process is shared by all candidate IPs.
- * Each candidate gets its own local SOCKS listener and VLESS outbound.
+ * Each candidate gets its own temporary sing-box process, local SOCKS listener,
+ * and VLESS outbound, so candidate failures do not contaminate one another.
  * The measured time starts only when the real HTTPS request begins, so
  * sing-box process startup is not included in the IP latency.
  */
