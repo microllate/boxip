@@ -505,14 +505,14 @@ class MainActivity : Activity() {
                     downloadResult?.let { "${it.tcpConnectMs}" } ?: "失败",
                     downloadResult?.let { "${it.tlsHandshakeMs}" } ?: "-",
                     downloadResult?.let { "${it.ttfbMs}" } ?: "-",
-                    downloadResult?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
+                    downloadResult?.let { String.format(Locale.US, "%.1f MB/s", it.downloadSpeedMbps) } ?: "-",
                     downloadResult?.pop ?: "-"
                 )
             }
         )
 
         resultTable.addView(
-            createResultRow("IP", "TCP", "TLS", "TTFB", "稳定性", "区域", header = true, columnWidths = columnWidths)
+            createResultRow("IP", "TCP", "TLS", "TTFB", "速度", "区域", header = true, columnWidths = columnWidths)
         )
 
         val divider = View(this)
@@ -534,7 +534,7 @@ class MainActivity : Activity() {
                     downloadResult?.let { "${it.tcpConnectMs}" } ?: "失败",
                     downloadResult?.let { "${it.tlsHandshakeMs}" } ?: "-",
                     downloadResult?.let { "${it.ttfbMs}" } ?: "-",
-                    downloadResult?.let { String.format(Locale.US, "%.0f%%", it.stabilityPercent) } ?: "-",
+                    downloadResult?.let { String.format(Locale.US, "%.1f MB/s", it.downloadSpeedMbps) } ?: "-",
                     downloadResult?.pop ?: "-",
                     header = false,
                     columnWidths = columnWidths
@@ -593,7 +593,7 @@ class MainActivity : Activity() {
         val realNodeWidths = contentColumnWidths(realNodeRows)
         resultTable.addView(
             createResultRow(
-                "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
+                "IP", "TCP", "TLS", "TTFB", "速度", "区域",
                 header = true,
                 columnWidths = realNodeWidths,
                 showSelector = true
@@ -901,7 +901,7 @@ class MainActivity : Activity() {
             )
 
             resultTable.addView(
-                createResultRow("IP", "TCP", "TLS", "TTFB", "稳定性", "区域", header = true, columnWidths = columnWidths)
+                createResultRow("IP", "TCP", "TLS", "TTFB", "速度", "区域", header = true, columnWidths = columnWidths)
             )
 
             val divider = View(this)
@@ -998,7 +998,7 @@ class MainActivity : Activity() {
                 verified?.let { "${it.tcpMs} ms" } ?: "失败",
                 verified?.let { "${it.tlsMs} ms" } ?: "-",
                 verified?.let { "${it.ttfbMs}" } ?: "-",
-                verified?.let { String.format(Locale.US, "%.0f%%", it.stability) } ?: "-",
+                verified?.let { String.format(Locale.US, "%.1f MB/s", it.speed) } ?: "-",
                 verified?.pop ?: "-"
             )
         }
@@ -1006,7 +1006,7 @@ class MainActivity : Activity() {
         val widths = contentColumnWidths(rows)
         resultTable.addView(
             createResultRow(
-                "IP", "TCP", "TLS", "TTFB", "稳定性", "区域",
+                "IP", "TCP", "TLS", "TTFB", "速度", "区域",
                 header = true,
                 columnWidths = widths,
                 showSelector = true
@@ -1021,7 +1021,7 @@ class MainActivity : Activity() {
                     verified?.let { "${it.tcpMs} ms" } ?: "失败",
                     verified?.let { "${it.tlsMs} ms" } ?: "-",
                     verified?.let { "${it.ttfbMs}" } ?: "-",
-                    verified?.let { String.format(Locale.US, "%.0f%%", it.stability) } ?: "-",
+                    verified?.let { String.format(Locale.US, "%.1f MB/s", it.speed) } ?: "-",
                     verified?.pop ?: "-",
                     header = false,
                     columnWidths = widths,
