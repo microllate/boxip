@@ -518,19 +518,14 @@ class MainActivity : Activity() {
             }
     }
 
-    private fun renderHistorySection(
+        private fun renderHistorySection(
         resultTable: LinearLayout,
         selectedIp: String?,
         clearFirst: Boolean = true
     ) {
-        // Re-rendering the history must not make the user leave or jump within
-        // the current result page. Preserve the ScrollView position exactly.
         val scrollView = (resultTable.parent?.parent as? android.widget.ScrollView)
         val savedScrollY = scrollView?.scrollY ?: 0
-
-        if (clearFirst) {
-            resultTable.removeAllViews()
-        }
+        if (clearFirst) resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
 
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
@@ -541,13 +536,12 @@ class MainActivity : Activity() {
                     .thenByDescending { it.testedAt }
             )
 
-        val section = TextView(this).apply {
+        resultTable.addView(TextView(this).apply {
             text = "历史可用节点"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 13f
             setPadding(dp(4), dp(18), dp(4), dp(8))
-        }
-        resultTable.addView(section)
+        })
 
         if (history.isEmpty()) {
             resultTable.addView(TextView(this).apply {
@@ -558,6 +552,8 @@ class MainActivity : Activity() {
             })
             return
         }
+
+        val metricLabels = listOf("VLESS", "TCP", "TLS", "TTFB", "速度", "区域")
 
         history.forEach { item ->
             val row = LinearLayout(this).apply {
@@ -571,11 +567,25 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL
             }
 
+            val selector = TextView(this).apply {
+                tag = "history_selector:${item.ip}"
+                contentDescription = if (item.ip == selectedIp) "当前使用 ${item.ip}" else "选择 ${item.ip}"
+                background = createSelectorDrawable(item.ip == selectedIp)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { selectIp(item.ip, resultTable) }
+            }
+            top.addView(selector, LinearLayout.LayoutParams(dp(16), dp(16)).apply {
+                marginStart = dp(2)
+                marginEnd = dp(6)
+            })
+
             val ipText = TextView(this).apply {
                 text = item.ip
                 setTextColor(getThemeColor(R.attr.boxTextSecondary))
                 textSize = 12f
-                setPadding(0, 0, dp(6), 0)
+                includeFontPadding = false
+                maxLines = 1
                 setOnClickListener { selectIp(item.ip, resultTable) }
             }
             top.addView(ipText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -585,81 +595,93 @@ class MainActivity : Activity() {
                 visibility = if (retestingHistoryIps.contains(item.ip)) View.VISIBLE else View.GONE
             }
             top.addView(retestSpinner, LinearLayout.LayoutParams(dp(22), dp(22)).apply {
-                gravity = Gravity.CENTER_VERTICAL
-                marginEnd = dp(10)
-                marginStart = dp(2)
+                marginStart = dp(6)
+                marginEnd = dp(8)
             })
 
             val testButton = Button(this).apply {
                 tag = "retest_button:${item.ip}"
                 text = "重测"
                 textSize = 11f
+                minWidth = 0
+                minimumWidth = 0
                 minHeight = 0
                 minimumHeight = 0
-                setPadding(dp(10), 0, dp(10), 0)
-                setBackgroundResource(
-                    if (retestingHistoryIps.contains(item.ip)) R.drawable.bg_surface_alt
-                    else R.drawable.bg_primary_button
-                )
-                setTextColor(
-                    getThemeColor(
-                        if (retestingHistoryIps.contains(item.ip)) R.attr.boxTextPrimary
-                        else R.attr.boxOnAccent
-                    )
-                )
+                setPadding(0, 0, 0, 0)
+                setBackgroundResource(if (retestingHistoryIps.contains(item.ip)) R.drawable.bg_surface_alt else R.drawable.bg_primary_button)
+                setTextColor(getThemeColor(if (retestingHistoryIps.contains(item.ip)) R.attr.boxTextPrimary else R.attr.boxOnAccent))
                 isEnabled = !retestingHistoryIps.contains(item.ip)
                 setOnClickListener { retestHistoryIp(item.ip, resultTable) }
             }
-            top.addView(testButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
+            top.addView(testButton, LinearLayout.LayoutParams(dp(72), dp(36)).apply {
+                marginEnd = dp(8)
+            })
 
             val deleteButton = Button(this).apply {
                 text = "删除"
                 textSize = 11f
+                minWidth = 0
+                minimumWidth = 0
                 minHeight = 0
                 minimumHeight = 0
-                setPadding(dp(10), 0, dp(10), 0)
+                setPadding(0, 0, 0, 0)
                 setBackgroundResource(R.drawable.bg_primary_button)
                 setTextColor(getThemeColor(R.attr.boxOnAccent))
                 setOnClickListener { deleteHistoryIp(item.ip, resultTable) }
             }
-            top.addView(deleteButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
+            top.addView(deleteButton, LinearLayout.LayoutParams(dp(72), dp(36)))
 
             row.addView(top)
+
+            val metricsHeader = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            metricLabels.forEach { label ->
+                metricsHeader.addView(TextView(this).apply {
+                    text = label
+                    setTextColor(getThemeColor(R.attr.boxTextPrimary))
+                    textSize = 10.5f
+                    includeFontPadding = false
+                    maxLines = 1
+                }, LinearLayout.LayoutParams(0, dp(22), 1f))
+            }
+            row.addView(metricsHeader)
 
             val metricsRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-            }
-            fun addHistoryMetric(text: String) {
-                metricsRow.addView(TextView(this).apply {
-                    this.text = text
-                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
-                    textSize = 11f
-                    maxLines = 1
-                    gravity = Gravity.START
-                }, LinearLayout.LayoutParams(0, dp(24), 1f))
+                tag = "history_metrics:${item.ip}"
             }
 
-            val vless = item.vlessLatencyMs.takeIf { it >= 0L }?.let { "${it} ms" } ?: "-"
-            addHistoryMetric("VLESS $vless")
-            addHistoryMetric("TCP ${item.tcpMs.takeIf { it >= 0L } ?: "-"}")
-            addHistoryMetric("TLS ${item.tlsMs.takeIf { it >= 0L } ?: "-"}")
-            addHistoryMetric("TTFB ${item.ttfbMs.takeIf { it >= 0L } ?: "-"}")
-            addHistoryMetric(String.format(Locale.US, "%.1f MB/s", item.speed))
-            addHistoryMetric(item.pop ?: "区域未知")
+            val metricValues = listOf(
+                if (item.vlessLatencyMs >= 0) "${item.vlessLatencyMs} ms" else "-",
+                if (item.tcpMs >= 0) "${item.tcpMs}" else "-",
+                if (item.tlsMs >= 0) "${item.tlsMs}" else "-",
+                if (item.ttfbMs >= 0) "${item.ttfbMs}" else "-",
+                if (item.speed > 0.0) String.format(Locale.US, "%.1f MB/s", item.speed) else "-",
+                item.pop ?: "-"
+            )
+            metricValues.forEach { value ->
+                metricsRow.addView(TextView(this).apply {
+                    text = value
+                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                    textSize = 10.5f
+                    includeFontPadding = false
+                    maxLines = 1
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                }, LinearLayout.LayoutParams(0, dp(28), 1f))
+            }
             row.addView(metricsRow)
+
             val divider = View(this).apply {
                 setBackgroundColor(getThemeColor(R.attr.boxDivider))
             }
             row.addView(divider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)))
-
             resultTable.addView(row)
         }
 
-        // Restore the exact position after rebuilding the history rows.
-        scrollView?.post {
-            scrollView.scrollTo(0, savedScrollY)
-        }
+        scrollView?.post { scrollView.scrollTo(0, savedScrollY) }
     }
 
     private fun renderRealNodeSection(
@@ -1225,9 +1247,9 @@ class MainActivity : Activity() {
     ) {
         val row = resultTable.findViewWithTag<View>("history_row:$ip") as? LinearLayout
             ?: return
-        val metricsRow = row.getChildAt(1) as? LinearLayout ?: return
+        val metricsRow = row.findViewWithTag<LinearLayout>("history_metrics:" + ip) ?: return
         val vlessText = metricsRow.getChildAt(0) as? TextView ?: return
-        vlessText.text = "VLESS ${latencyMs} ms"
+        vlessText.text = latencyMs.toString() + " ms"
     }
 
     private fun deleteHistoryIp(ip: String, resultTable: LinearLayout) {
@@ -1585,15 +1607,27 @@ class MainActivity : Activity() {
     private fun updateSelectionIndicators(resultTable: LinearLayout, selectedIp: String) {
         for (index in 0 until resultTable.childCount) {
             val row = resultTable.getChildAt(index) as? LinearLayout ?: continue
-            val ipCell = row.getChildAt(0) as? LinearLayout ?: continue
-            val selector = ipCell.getChildAt(0) as? TextView ?: continue
-            val ip = selector.tag as? String ?: continue
+            val ipCell = row.getChildAt(0) as? LinearLayout
+            if (ipCell != null) {
+                val selector = ipCell.getChildAt(0) as? TextView
+                val ip = selector?.tag as? String
+                if (selector != null && ip != null) {
+                    selector.background = createSelectorDrawable(ip == selectedIp)
+                    selector.contentDescription = if (ip == selectedIp) "当前使用 $ip" else "可用入口 $ip"
+                }
+            }
 
-            selector.background = createSelectorDrawable(ip == selectedIp)
-            selector.contentDescription = if (ip == selectedIp) {
-                "当前使用 $ip"
-            } else {
-                "可用入口 $ip"
+            val topRow = row.getChildAt(0) as? LinearLayout
+            if (topRow != null) {
+                for (childIndex in 0 until topRow.childCount) {
+                    val child = topRow.getChildAt(childIndex)
+                    val tag = child.tag as? String
+                    if (child is TextView && tag?.startsWith("history_selector:") == true) {
+                        val ip = tag.removePrefix("history_selector:")
+                        child.background = createSelectorDrawable(ip == selectedIp)
+                        child.contentDescription = if (ip == selectedIp) "当前使用 $ip" else "选择 $ip"
+                    }
+                }
             }
         }
     }
