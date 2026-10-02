@@ -725,6 +725,49 @@ class MainActivity : Activity() {
             .commit()
     }
 
+    private fun restoreLastResults(
+        statusText: TextView,
+        resultText: TextView,
+        resultTable: LinearLayout,
+        rangesValue: TextView,
+        candidatesValue: TextView,
+        tcpValue: TextView,
+        downloadValue: TextView
+    ) {
+        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        val snapshotRaw = prefs.getString(KEY_RESULTS_SNAPSHOT, null)
+        val snapshot = snapshotRaw?.let { runCatching { JSONObject(it) }.getOrNull() }
+
+        rangesValue.text = (snapshot?.optInt("ranges", prefs.getInt("ranges", 0))
+            ?: prefs.getInt("ranges", 0)).toString()
+        candidatesValue.text = (snapshot?.optInt("candidates", prefs.getInt("candidates", 0))
+            ?: prefs.getInt("candidates", 0)).toString()
+        tcpValue.text = (snapshot?.optInt("tcp", prefs.getInt("tcp", 0))
+            ?: prefs.getInt("tcp", 0)).toString()
+        downloadValue.text = (snapshot?.optInt("downloads", prefs.getInt("downloads", 0))
+            ?: prefs.getInt("downloads", 0)).toString()
+
+        val selectedIp = snapshot?.optString("selectedIp", "")
+            ?.takeIf { it.isNotEmpty() }
+            ?: prefs.getString("selectedIp", null)?.takeIf { it.isNotEmpty() }
+
+        if (selectedIp != null) {
+            BoxIpDnsServer.setCurrentIp(selectedIp)
+        }
+
+        val history = parseHistory(prefs.getString(KEY_HISTORY, null))
+        if (history.isNotEmpty()) {
+            statusText.text = "已恢复历史可用节点"
+            resultText.visibility = View.GONE
+        } else {
+            statusText.text = "暂无历史可用节点"
+            resultText.visibility = View.VISIBLE
+            resultText.text = "暂无通过真实 VLESS + WS 验证的节点。"
+        }
+
+        renderHistorySection(resultTable, selectedIp)
+    }
+
     private fun parseRestoredDownloadResults(raw: String?): List<RestoredDownloadResult> {
         if (raw.isNullOrEmpty()) return emptyList()
 
