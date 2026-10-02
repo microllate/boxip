@@ -39,8 +39,7 @@ class CfstDownloader(
         val tcpConnectMs: Long,
         val tlsHandshakeMs: Long,
         val ttfbMs: Long,
-        val pop: String?,
-        val downloadSpeedMbps: Double
+        val pop: String?
     )
 
     fun download(ips: List<String>): List<CfstDownloadResult> {
