@@ -613,7 +613,7 @@ class MainActivity : Activity() {
                 isEnabled = !retestingHistoryIps.contains(item.ip)
                 setOnClickListener { retestHistoryIp(item.ip, resultTable) }
             }
-            top.addView(testButton, LinearLayout.LayoutParams(dp(72), dp(36)).apply {
+            top.addView(testButton, LinearLayout.LayoutParams(dp(72), dp(28)).apply {
                 marginEnd = dp(8)
             })
 
@@ -629,7 +629,7 @@ class MainActivity : Activity() {
                 setTextColor(getThemeColor(R.attr.boxOnAccent))
                 setOnClickListener { deleteHistoryIp(item.ip, resultTable) }
             }
-            top.addView(deleteButton, LinearLayout.LayoutParams(dp(72), dp(36)))
+            top.addView(deleteButton, LinearLayout.LayoutParams(dp(72), dp(28)))
 
             row.addView(top)
 
