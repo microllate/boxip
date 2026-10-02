@@ -42,7 +42,10 @@ class CfstDownloader(
         val pop: String?
     )
 
-    fun download(ips: List<String>): List<CfstDownloadResult> {
+    fun download(
+        ips: List<String>,
+        onProgress: ((completed: Int, total: Int) -> Unit)? = null
+    ): List<CfstDownloadResult> {
         val distinctIps = ips.distinct()
         if (distinctIps.isEmpty()) return emptyList()
 
@@ -54,9 +57,14 @@ class CfstDownloader(
                 }
             }
 
-            futures.mapNotNull { future ->
-                runCatching { future.get() }.getOrNull()
+            var completed = 0
+            val results = mutableListOf<CfstDownloadResult>()
+            futures.forEach { future ->
+                runCatching { future.get() }.getOrNull()?.let(results::add)
+                completed++
+                onProgress?.invoke(completed, distinctIps.size)
             }
+            results
         } finally {
             pool.shutdownNow()
         }
