@@ -350,7 +350,7 @@ class MainActivity : Activity() {
                         }
                     }.sortedWith(
                         compareBy<DownloadDisplayResult> { it.downloadResult == null }
-                            .thenByDescending { qualityByIp[it.downloadResult?.ip]?.totalScore ?: -1.0 }
+                            .thenByDescending { item -> item.downloadResult?.let { qualityByIp[it.ip]?.totalScore } ?: -1.0 }
                             .thenBy { it.downloadResult?.ttfbMs ?: Long.MAX_VALUE }
                             .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
                             .thenBy { it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE }
