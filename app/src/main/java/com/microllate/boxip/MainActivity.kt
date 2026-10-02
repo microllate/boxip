@@ -17,6 +17,7 @@ import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Spinner
@@ -34,6 +35,7 @@ class MainActivity : Activity() {
         private const val KEY_REGION = "region"
         private const val KEY_RESULTS_SNAPSHOT = "snapshot"
         private const val KEY_HISTORY = "history"
+    private val retestingHistoryIps = mutableSetOf<String>()
     }
 
     private data class RegionOption(
@@ -583,12 +585,23 @@ class MainActivity : Activity() {
             }
             top.addView(ipText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
+            if (retestingHistoryIps.contains(item.ip)) {
+                top.addView(ProgressBar(this).apply {
+                    isIndeterminate = true
+                    setPadding(0, 0, dp(6), 0)
+                }, LinearLayout.LayoutParams(dp(24), dp(24)).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    marginEnd = dp(6)
+                })
+            }
+
             val testButton = Button(this).apply {
                 text = "重测"
                 textSize = 11f
                 minHeight = 0
                 minimumHeight = 0
                 setPadding(dp(10), 0, dp(10), 0)
+                isEnabled = !retestingHistoryIps.contains(item.ip)
                 setOnClickListener { retestHistoryIp(item.ip, resultTable) }
             }
             top.addView(testButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
@@ -1201,7 +1214,8 @@ class MainActivity : Activity() {
         }
 
         val physicalInterface = connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
-        statusTextForHistory("正在单独验证 $ip …")
+        if (!retestingHistoryIps.add(ip)) return
+        renderHistorySection(resultTable, getPersistedSelectedIp())
 
         executor.execute {
             val result = runCatching {
@@ -1218,6 +1232,7 @@ class MainActivity : Activity() {
             }.getOrNull()
 
             runOnUiThread {
+                retestingHistoryIps.remove(ip)
                 if (result?.success == true) {
                     val old = parseHistory(
                         getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
@@ -1232,9 +1247,6 @@ class MainActivity : Activity() {
                             )
                         )
                     }
-                    statusTextForHistory("单独验证成功：$ip")
-                } else {
-                    statusTextForHistory("单独验证失败：$ip")
                 }
                 renderHistorySection(resultTable, getPersistedSelectedIp())
             }
