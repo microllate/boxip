@@ -217,47 +217,99 @@ class MainActivity : Activity() {
                         context = this@MainActivity,
                         networkKey = networkKey
                     )
-                    val candidates = sampler.sample(ranges.ipv4)
 
-                    runOnUiThread {
-                        rangesValue.text = ranges.ipv4.size.toString()
-                        candidatesValue.text = candidates.size.toString()
-                        statusText.text = "第一阶段 · 自适应 TCPing 443"
-                        resultText.text = "历史优选 + 随机探索，正在测试 ${candidates.size} 个候选 IP…"
-                    }
+                    val results = mutableListOf<CfstScanResult>()
+                    val candidates = mutableListOf<String>()
+                    val initialCandidates: List<CfstScanResult>
 
-                    appendScanLog("第一阶段开始 · TCPing 443 · ${candidates.size} 个候选 IP")
+                    if (selectedRegion.pops.isEmpty()) {
+                        // Automatic mode: stage 1 is now a strict low-latency discovery pass.
+                        // Test random batches of 300 and keep only TCP < 10 ms. Continue
+                        // sampling new batches until 30 qualifying IPs have been found.
+                        val testedIps = linkedSetOf<String>()
+                        val fastIps = linkedMapOf<String, CfstScanResult>()
+                        var batchIndex = 0
 
-                    val results = CfstScanner(
-                        network = physicalNetwork,
-                        pingTimes = 4,
-                        timeoutMs = 1000,
-                        concurrency = 20
-                    ).scan(candidates)
+                        runOnUiThread {
+                            rangesValue.text = ranges.ipv4.size.toString()
+                            candidatesValue.text = "0"
+                            statusText.text = "第一阶段 · TCP < 10 ms 筛选"
+                            resultText.text = "随机测试 300 个 IP，正在寻找 TCP < 10 ms 的入口…"
+                        }
 
-                    appendScanLog(
-                        "第一阶段完成 · TCP 可用 ${results.count { it.received > 0 }} / ${results.size}"
-                    )
+                        appendScanLog("第一阶段开始 · 每批随机 300 IP · 目标 TCP < 10 ms × 30")
 
-                    val historicalFastestIps = sampler.getHistoricalFastestIps()
-                    val retainedResults = historicalFastestIps.mapNotNull { ip ->
-                        results.firstOrNull { it.ip == ip }
-                    }
+                        while (fastIps.size < 30) {
+                            batchIndex++
 
-                    // Automatic mode keeps a broader Top 30 pool for the second-stage quality analysis.
-                    // Region mode first performs a short PoP discovery across
-                    // a larger and more diverse pool. Anycast cannot force a
-                    // specific PoP; we need to observe what this network reaches.
-                    val initialCandidates = if (selectedRegion.pops.isEmpty()) {
-                        buildList {
-                            addAll(retainedResults.distinctBy { it.ip }.take(30))
-                            for (result in results) {
-                                if (size >= 30) break
-                                if (none { it.ip == result.ip }) add(result)
+                            // Avoid retesting an IP that was already measured in a previous batch.
+                            val batch = sampler.sampleRandomBatch(ranges.ipv4, 300)
+                                .filterNot(testedIps::contains)
+
+                            if (batch.isEmpty()) {
+                                throw IllegalStateException("Cloudflare IP 地址池已耗尽，无法找到 30 个 TCP < 10 ms 的 IP")
+                            }
+
+                            testedIps += batch
+                            candidates += batch
+
+                            val batchResults = CfstScanner(
+                                network = physicalNetwork,
+                                pingTimes = 4,
+                                timeoutMs = 1000,
+                                concurrency = 20
+                            ).scan(batch)
+
+                            results += batchResults
+
+                            batchResults
+                                .filter { it.received > 0 && (it.latencyMs ?: Long.MAX_VALUE) < 10L }
+                                .forEach { fastIps.putIfAbsent(it.ip, it) }
+
+                            val found = minOf(fastIps.size, 30)
+                            appendScanLog(
+                                "第 ${batchIndex} 批完成 · TCP < 10 ms: ${found} / 30 · 本批测试 ${batch.size} · 累计 ${testedIps.size}"
+                            )
+
+                            runOnUiThread {
+                                candidatesValue.text = testedIps.size.toString()
+                                resultText.text = "已测试 ${testedIps.size} 个 IP，找到 TCP < 10 ms：${found} / 30…"
                             }
                         }
+
+                        initialCandidates = fastIps.values
+                            .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
+                            .take(30)
+
+                        appendScanLog(
+                            "第一阶段完成 · 累计测试 ${testedIps.size} 个 IP · TCP < 10 ms 共 ${initialCandidates.size} 个"
+                        )
                     } else {
-                        results.shuffled().take(selectedRegion.candidateCount)
+                        // Region mode keeps its existing discovery behavior.
+                        val sampled = sampler.sample(ranges.ipv4)
+                        candidates += sampled
+
+                        runOnUiThread {
+                            rangesValue.text = ranges.ipv4.size.toString()
+                            candidatesValue.text = candidates.size.toString()
+                            statusText.text = "第一阶段 · 自适应 TCPing 443"
+                            resultText.text = "历史优选 + 随机探索，正在测试 ${candidates.size} 个候选 IP…"
+                        }
+
+                        appendScanLog("第一阶段开始 · TCPing 443 · ${candidates.size} 个候选 IP")
+
+                        results += CfstScanner(
+                            network = physicalNetwork,
+                            pingTimes = 4,
+                            timeoutMs = 1000,
+                            concurrency = 20
+                        ).scan(sampled)
+
+                        appendScanLog(
+                            "第一阶段完成 · TCP 可用 ${results.count { it.received > 0 }} / ${results.size}"
+                        )
+
+                        initialCandidates = results.shuffled().take(selectedRegion.candidateCount)
                     }
 
                     val downloadCandidates: List<CfstScanResult>
