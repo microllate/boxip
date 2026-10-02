@@ -33,6 +33,7 @@ class MainActivity : Activity() {
         private const val THEME_DARK = 2
         private const val KEY_REGION = "region"
         private const val KEY_RESULTS_SNAPSHOT = "snapshot"
+        private const val KEY_HISTORY = "history"
     }
 
     private data class RegionOption(
@@ -400,6 +401,7 @@ class MainActivity : Activity() {
                         .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
                         .firstOrNull()
                         ?.ip
+                        ?: getPersistedSelectedIp()
                     if (selectedIp != null) {
                         BoxIpDnsServer.setCurrentIp(selectedIp)
                     }
@@ -422,14 +424,7 @@ class MainActivity : Activity() {
                             ""
                         }
 
-                        renderResults(
-                            resultTable,
-                            displayedResults,
-                            realNodeCandidates,
-                            realNodeResults,
-                            selectedIp,
-                            vlessResults
-                        )
+                        renderHistorySection(resultTable, selectedIp)
                         saveLastResults(
                             ranges.ipv4.size,
                             candidates.size,
@@ -464,82 +459,106 @@ class MainActivity : Activity() {
         val downloadResult: CfstDownloadResult?
     )
 
-    private fun renderResults(
+    private fun renderHistorySection(
         resultTable: LinearLayout,
-        displayedResults: List<DownloadDisplayResult>,
-        realNodeCandidates: List<CfstDownloadResult> = emptyList(),
-        realNodeResults: List<CfstDownloadResult> = emptyList(),
-        selectedIp: String? = null,
-        vlessResults: List<VlessWsResult> = emptyList()
+        selectedIp: String?
     ) {
         resultTable.removeAllViews()
         resultTable.visibility = View.VISIBLE
 
-        // The real-domain verification is the final decision layer, so show it
-        // first. Successful real VLESS+WS results are ranked by actual latency;
-        // failed VLESS+WS candidates are kept below them.
-        if (realNodeCandidates.isNotEmpty()) {
-            renderRealNodeSection(
-                resultTable,
-                realNodeCandidates,
-                realNodeResults,
-                selectedIp,
-                vlessResults
+        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        val history = parseHistory(prefs.getString(KEY_HISTORY, null))
+            .sortedWith(
+                compareBy<HistoryResult> { it.ip != selectedIp }
+                    .thenBy { it.vlessLatencyMs.takeIf { value -> value >= 0L } ?: Long.MAX_VALUE }
+                    .thenByDescending { it.testedAt }
             )
-        }
 
-        val genericSection = TextView(this).apply {
-            text = "通用测试"
+        val section = TextView(this).apply {
+            text = "历史可用节点"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 13f
             setPadding(dp(4), dp(18), dp(4), dp(8))
         }
-        resultTable.addView(genericSection)
+        resultTable.addView(section)
 
-        val columnWidths = contentColumnWidths(
-            displayedResults.map { item ->
-                val scanResult = item.scanResult
-                val downloadResult = item.downloadResult
-                listOf(
-                    scanResult.ip,
-                    downloadResult?.let { "${it.tcpConnectMs}" } ?: "失败",
-                    downloadResult?.let { "${it.tlsHandshakeMs}" } ?: "-",
-                    downloadResult?.let { "${it.ttfbMs}" } ?: "-",
-                    downloadResult?.let { String.format(Locale.US, "%.1f MB/s", it.downloadSpeedMbps) } ?: "-",
-                    downloadResult?.pop ?: "-"
-                )
+        if (history.isEmpty()) {
+            resultTable.addView(TextView(this).apply {
+                text = "暂无通过真实 VLESS + WS 验证的节点"
+                setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                textSize = 12f
+                setPadding(dp(4), dp(8), dp(4), dp(12))
+            })
+            return
+        }
+
+        history.forEach { item ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(4), dp(8), dp(4), dp(8))
             }
-        )
 
-        resultTable.addView(
-            createResultRow("IP", "TCP", "TLS", "TTFB", "速度", "区域", header = true, columnWidths = columnWidths)
-        )
+            val top = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
 
-        val divider = View(this)
-        divider.setBackgroundColor(getThemeColor(R.attr.boxDivider))
-        resultTable.addView(
-            divider,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(1)
-            )
-        )
+            val ipText = TextView(this).apply {
+                text = item.ip
+                setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                textSize = 12f
+                setPadding(0, 0, dp(6), 0)
+                setOnClickListener { selectIp(item.ip, resultTable) }
+            }
+            top.addView(ipText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
-        displayedResults.forEach { item ->
-            val scanResult = item.scanResult
-            val downloadResult = item.downloadResult
-            resultTable.addView(
-                createResultRow(
-                    scanResult.ip,
-                    downloadResult?.let { "${it.tcpConnectMs}" } ?: "失败",
-                    downloadResult?.let { "${it.tlsHandshakeMs}" } ?: "-",
-                    downloadResult?.let { "${it.ttfbMs}" } ?: "-",
-                    downloadResult?.let { String.format(Locale.US, "%.1f MB/s", it.downloadSpeedMbps) } ?: "-",
-                    downloadResult?.pop ?: "-",
-                    header = false,
-                    columnWidths = columnWidths
-                )
-            )
+            val testButton = Button(this).apply {
+                text = "重测"
+                textSize = 11f
+                minHeight = 0
+                minimumHeight = 0
+                setPadding(dp(10), 0, dp(10), 0)
+                setOnClickListener { retestHistoryIp(item.ip, resultTable) }
+            }
+            top.addView(testButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
+
+            val deleteButton = Button(this).apply {
+                text = "删除"
+                textSize = 11f
+                minHeight = 0
+                minimumHeight = 0
+                setPadding(dp(10), 0, dp(10), 0)
+                setOnClickListener { deleteHistoryIp(item.ip, resultTable) }
+            }
+            top.addView(deleteButton, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)))
+
+            row.addView(top)
+
+            val detail = TextView(this).apply {
+                val vless = item.vlessLatencyMs.takeIf { it >= 0L }?.let { "\${it} ms" } ?: "-"
+                val speed = String.format(Locale.US, "%.1f MB/s", item.speed)
+                text = "VLESS $vless   TCP \${item.tcpMs.takeIf { it >= 0L } ?: "-"}   TLS \${item.tlsMs.takeIf { it >= 0L } ?: "-"}   TTFB \${item.ttfbMs.takeIf { it >= 0L } ?: "-"}   $speed"
+                setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                textSize = 11f
+                setPadding(0, dp(2), 0, dp(2))
+                maxLines = 2
+            }
+            row.addView(detail)
+
+            val popText = TextView(this).apply {
+                text = item.pop ?: "区域未知"
+                setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                textSize = 11f
+                setPadding(0, 0, 0, dp(2))
+            }
+            row.addView(popText)
+
+            val divider = View(this).apply {
+                setBackgroundColor(getThemeColor(R.attr.boxDivider))
+            }
+            row.addView(divider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)))
+
+            resultTable.addView(row)
         }
     }
 
@@ -666,271 +685,44 @@ class MainActivity : Activity() {
         selectedIp: String?,
         vlessResults: List<VlessWsResult>
     ) {
-        val array = JSONArray()
-        results.forEach { item ->
-            val scanResult = item.scanResult
-            val downloadResult = item.downloadResult
-            array.put(JSONObject().apply {
-                put("ip", scanResult.ip)
-                put("loss", scanResult.lossRate)
-                put("latency", scanResult.latencyMs ?: -1L)
-                put("success", downloadResult != null)
-                put("tcpMs", downloadResult?.tcpConnectMs ?: -1L)
-                put("tlsMs", downloadResult?.tlsHandshakeMs ?: -1L)
-                put("ttfbMs", downloadResult?.ttfbMs ?: -1L)
-                put("stability", downloadResult?.stabilityPercent ?: 0.0)
-                put("speed", downloadResult?.downloadSpeedMbps ?: 0.0)
-                put("durationMs", downloadResult?.durationMs ?: -1L)
-                put("pop", downloadResult?.pop ?: "")
-            })
+        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        val existing = parseHistory(prefs.getString(KEY_HISTORY, null)).toMutableList()
+        val metricsByIp = realNodeResults.associateBy { it.ip }
+
+        vlessResults.filter { it.success }.forEach { verified ->
+            val metrics = metricsByIp[verified.ip]
+            val item = HistoryResult(
+                ip = verified.ip,
+                tcpMs = metrics?.tcpConnectMs ?: -1L,
+                tlsMs = metrics?.tlsHandshakeMs ?: -1L,
+                ttfbMs = metrics?.ttfbMs ?: -1L,
+                speed = metrics?.downloadSpeedMbps ?: 0.0,
+                pop = metrics?.pop,
+                vlessLatencyMs = verified.latencyMs ?: -1L,
+                testedAt = System.currentTimeMillis()
+            )
+            existing.removeAll { it.ip == item.ip }
+            existing.add(item)
         }
 
-        fun serializeDownloadResults(items: List<CfstDownloadResult>): String {
-            val resultArray = JSONArray()
-            items.forEach { result ->
-                resultArray.put(JSONObject().apply {
-                    put("ip", result.ip)
-                    put("tcpMs", result.tcpConnectMs)
-                    put("tlsMs", result.tlsHandshakeMs)
-                    put("ttfbMs", result.ttfbMs)
-                    put("stability", result.stabilityPercent)
-                    put("speed", result.downloadSpeedMbps)
-                    put("durationMs", result.durationMs)
-                    put("pop", result.pop ?: "")
-                })
-            }
-            return resultArray.toString()
-        }
-
+        val historyJson = serializeHistory(existing)
         val snapshot = JSONObject().apply {
-            put("version", 2)
+            put("version", 3)
             put("ranges", ranges)
             put("candidates", candidates)
             put("tcp", tcp)
             put("downloads", downloads)
-            put("results", array)
-            put("realNodeCandidates", JSONArray(serializeDownloadResults(realNodeCandidates)))
-            put("realNodeResults", JSONArray(serializeDownloadResults(realNodeResults)))
-            put("vlessResults", JSONArray(vlessResults.map { r ->
-                JSONObject().apply {
-                    put("ip", r.ip)
-                    put("latencyMs", r.latencyMs ?: -1L)
-                    put("success", r.success)
-                    put("stage", r.stage)
-                    put("error", r.error ?: "")
-                }
-            }))
+            put("history", JSONArray(historyJson))
             put("selectedIp", selectedIp ?: "")
             put("savedAt", System.currentTimeMillis())
         }
 
-        // Keep the complete scan state in one snapshot. commit() is intentional:
-        // the selected IP is used by the loopback DNS immediately after a scan,
-        // so the persisted state must be confirmed on disk before returning.
-        getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
-            .edit()
+        prefs.edit()
             .putString(KEY_RESULTS_SNAPSHOT, snapshot.toString())
-            // Keep the old keys for migration/debugging and older builds.
-            .putInt("ranges", ranges)
-            .putInt("candidates", candidates)
-            .putInt("tcp", tcp)
-            .putInt("downloads", downloads)
-            .putString("results", array.toString())
-            .putString("realNodeCandidates", serializeDownloadResults(realNodeCandidates))
-            .putString("realNodeResults", serializeDownloadResults(realNodeResults))
-            .putString("vlessResults", JSONArray(vlessResults.map { r ->
-                JSONObject().apply {
-                    put("ip", r.ip)
-                    put("latencyMs", r.latencyMs ?: -1L)
-                    put("success", r.success)
-                    put("stage", r.stage)
-                    put("error", r.error ?: "")
-                }
-            }).toString())
+            .putString(KEY_HISTORY, historyJson)
             .putString("selectedIp", selectedIp ?: "")
             .putLong("savedAt", System.currentTimeMillis())
             .commit()
-    }
-
-    private fun restoreLastResults(
-        statusText: TextView,
-        resultText: TextView,
-        resultTable: LinearLayout,
-        rangesValue: TextView,
-        candidatesValue: TextView,
-        tcpValue: TextView,
-        downloadValue: TextView
-    ) {
-        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
-
-        try {
-            // Prefer the unified snapshot. Fall back to the legacy keys so
-            // results saved by older BoxIP builds can still be displayed.
-            val snapshotRaw = prefs.getString(KEY_RESULTS_SNAPSHOT, null)
-            val snapshot = snapshotRaw?.let { JSONObject(it) }
-
-            val array = snapshot?.optJSONArray("results")
-                ?: prefs.getString("results", null)?.let { JSONArray(it) }
-                ?: return
-
-            val restored = mutableListOf<RestoredResult>()
-
-            val restoredRealCandidates = snapshot?.optJSONArray("realNodeCandidates")?.toString()
-                ?.let { parseRestoredDownloadResults(it) }
-                ?: parseRestoredDownloadResults(
-                    prefs.getString("realNodeCandidates", null)
-                )
-
-            val restoredRealResults = snapshot?.optJSONArray("realNodeResults")?.toString()
-                ?.let { parseRestoredDownloadResults(it) }
-                ?: parseRestoredDownloadResults(
-                    prefs.getString("realNodeResults", null)
-                )
-
-            val restoredVlessResults = snapshot?.optJSONArray("vlessResults")?.let { array ->
-                buildList {
-                    for (index in 0 until array.length()) {
-                        val item = array.getJSONObject(index)
-                        add(
-                            RestoredVlessResult(
-                                ip = item.optString("ip", ""),
-                                latencyMs = item.optLong("latencyMs", -1L).takeIf { it >= 0L },
-                                success = item.optBoolean("success", false),
-                                stage = item.optString("stage", ""),
-                                error = item.optString("error", "").ifEmpty { null }
-                            )
-                        )
-                    }
-                }
-            } ?: parseRestoredVlessResults(prefs.getString("vlessResults", null))
-
-            val savedSelectedIp = snapshot?.optString("selectedIp", "")
-                ?.takeIf { it.isNotEmpty() }
-                ?: prefs.getString("selectedIp", null).orEmpty()
-
-            // The persisted selected IP is authoritative. If an older snapshot
-            // has no selected IP, derive it from the same ordering shown in UI:
-            // real-domain verification first, otherwise the first successful
-            // generic result.
-            val restoredSelectedIp = savedSelectedIp
-                .takeIf { it.isNotEmpty() }
-                ?: restoredVlessResults
-                    .asSequence()
-                    .filter { it.success }
-                    .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
-                    .firstOrNull()
-                    ?.ip
-                ?: restoredRealResults.firstOrNull()?.ip
-                ?: run {
-                    for (index in 0 until array.length()) {
-                        val item = array.getJSONObject(index)
-                        if (item.optBoolean("success", false)) {
-                            return@run item.optString("ip", "").takeIf { it.isNotEmpty() }
-                        }
-                    }
-                    null
-                }
-
-            if (restoredSelectedIp != null) {
-                BoxIpDnsServer.setCurrentIp(restoredSelectedIp)
-            }
-
-            for (index in 0 until array.length()) {
-                val item = array.getJSONObject(index)
-                restored += RestoredResult(
-                    ip = item.getString("ip"),
-                    loss = item.optDouble("loss", 0.0),
-                    latencyMs = item.optLong("latency", -1L),
-                    success = item.has("tcpMs") && item.optBoolean("success", false),
-                    tcpMs = item.optLong("tcpMs", -1L),
-                    tlsMs = item.optLong("tlsMs", -1L),
-                    ttfbMs = item.optLong("ttfbMs", -1L),
-                    stability = item.optDouble("stability", 0.0),
-                    speed = item.optDouble("speed", 0.0),
-                    pop = item.optString("pop", "").ifEmpty { "-" }
-                )
-            }
-
-            rangesValue.text = (snapshot?.optInt("ranges", prefs.getInt("ranges", 0))
-                ?: prefs.getInt("ranges", 0)).toString()
-            candidatesValue.text = (snapshot?.optInt("candidates", prefs.getInt("candidates", 0))
-                ?: prefs.getInt("candidates", 0)).toString()
-            tcpValue.text = (snapshot?.optInt("tcp", prefs.getInt("tcp", 0))
-                ?: prefs.getInt("tcp", 0)).toString()
-            downloadValue.text = (snapshot?.optInt("downloads", prefs.getInt("downloads", restored.size))
-                ?: prefs.getInt("downloads", restored.size)).toString()
-
-            statusText.text = "已恢复上次测速结果"
-            resultText.visibility = if (restored.isEmpty()) View.VISIBLE else View.GONE
-            resultText.text = "没有成功的下载测速结果。"
-
-            resultTable.removeAllViews()
-            resultTable.visibility = View.VISIBLE
-
-            // Show the real-domain verification first on restored results too,
-            // so the screen order is identical to a fresh scan.
-            if (restoredRealCandidates.isNotEmpty()) {
-                renderRestoredRealNodeResults(
-                    resultTable,
-                    restoredRealCandidates,
-                    restoredRealResults,
-                    restoredSelectedIp,
-                    restoredVlessResults
-                )
-            }
-
-            val genericSection = TextView(this).apply {
-                text = "通用测试"
-                setTextColor(getThemeColor(R.attr.boxTextPrimary))
-                textSize = 13f
-                setPadding(dp(4), dp(18), dp(4), dp(8))
-            }
-            resultTable.addView(genericSection)
-
-            val columnWidths = contentColumnWidths(
-                restored.map { item ->
-                    listOf(
-                        item.ip,
-                        if (item.success) "${item.tcpMs}" else "失败",
-                        if (item.success) "${item.tlsMs}" else "-",
-                        if (item.success) "${item.ttfbMs}" else "-",
-                        if (item.success) String.format(Locale.US, "%.1f MB/s", item.speed) else "-",
-                        if (item.success) item.pop else "-"
-                    )
-                }
-            )
-
-            resultTable.addView(
-                createResultRow("IP", "TCP", "TLS", "TTFB", "速度", "区域", header = true, columnWidths = columnWidths)
-            )
-
-            val divider = View(this)
-            divider.setBackgroundColor(getThemeColor(R.attr.boxDivider))
-            resultTable.addView(
-                divider,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(1)
-                )
-            )
-
-            restored.forEach { item ->
-                resultTable.addView(
-                    createResultRow(
-                        item.ip,
-                        if (item.success) "${item.tcpMs}" else "失败",
-                        if (item.success) "${item.tlsMs}" else "-",
-                        if (item.success) "${item.ttfbMs}" else "-",
-                        if (item.success) String.format(Locale.US, "%.1f MB/s", item.speed) else "-",
-                        if (item.success) item.pop else "-",
-                        header = false,
-                        columnWidths = columnWidths
-                    )
-                )
-            }
-        } catch (_: Exception) {
-            // Ignore invalid old result data and keep the initial empty state.
-        }
     }
 
     private fun parseRestoredDownloadResults(raw: String?): List<RestoredDownloadResult> {
@@ -1085,6 +877,148 @@ class MainActivity : Activity() {
                 }
             }
         }.getOrDefault(emptyList())
+    }
+
+    private data class HistoryResult(
+        val ip: String,
+        val tcpMs: Long,
+        val tlsMs: Long,
+        val ttfbMs: Long,
+        val speed: Double,
+        val pop: String?,
+        val vlessLatencyMs: Long,
+        val testedAt: Long
+    )
+
+    private fun parseHistory(raw: String?): List<HistoryResult> {
+        if (raw.isNullOrEmpty()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    add(
+                        HistoryResult(
+                            ip = item.optString("ip", ""),
+                            tcpMs = item.optLong("tcpMs", -1L),
+                            tlsMs = item.optLong("tlsMs", -1L),
+                            ttfbMs = item.optLong("ttfbMs", -1L),
+                            speed = item.optDouble("speed", 0.0),
+                            pop = item.optString("pop", "").ifEmpty { null },
+                            vlessLatencyMs = item.optLong("vlessLatencyMs", -1L),
+                            testedAt = item.optLong("testedAt", 0L)
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun serializeHistory(items: List<HistoryResult>): String {
+        val array = JSONArray()
+        items.forEach { item ->
+            array.put(JSONObject().apply {
+                put("ip", item.ip)
+                put("tcpMs", item.tcpMs)
+                put("tlsMs", item.tlsMs)
+                put("ttfbMs", item.ttfbMs)
+                put("speed", item.speed)
+                put("pop", item.pop ?: "")
+                put("vlessLatencyMs", item.vlessLatencyMs)
+                put("testedAt", item.testedAt)
+            })
+        }
+        return array.toString()
+    }
+
+    private fun getPersistedSelectedIp(): String? {
+        return getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+            .getString("selectedIp", null)
+            ?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun updateHistoryItem(item: HistoryResult) {
+        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        val history = parseHistory(prefs.getString(KEY_HISTORY, null)).toMutableList()
+        history.removeAll { it.ip == item.ip }
+        history.add(item)
+        prefs.edit().putString(KEY_HISTORY, serializeHistory(history)).apply()
+    }
+
+    private fun deleteHistoryIp(ip: String, resultTable: LinearLayout) {
+        val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        val history = parseHistory(prefs.getString(KEY_HISTORY, null)).filterNot { it.ip == ip }
+        val editor = prefs.edit().putString(KEY_HISTORY, serializeHistory(history))
+
+        if (getPersistedSelectedIp() == ip) {
+            editor.remove("selectedIp")
+            BoxIpDnsServer.setCurrentIp("")
+        }
+
+        editor.commit()
+        renderHistorySection(resultTable, getPersistedSelectedIp())
+    }
+
+    private fun retestHistoryIp(ip: String, resultTable: LinearLayout) {
+        val connectivityManager = getSystemService(ConnectivityManager::class.java)
+        val physicalNetwork = connectivityManager.allNetworks.firstOrNull { network ->
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            capabilities != null &&
+                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+
+        if (physicalNetwork == null) {
+            statusTextForHistory("重测失败：没有可用的物理网络")
+            return
+        }
+
+        val physicalInterface = connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
+        statusTextForHistory("正在单独验证 $ip …")
+
+        executor.execute {
+            val result = runCatching {
+                VlessWsScanner(
+                    network = physicalNetwork,
+                    timeoutMs = 8_000,
+                    concurrency = 1
+                ).scan(
+                    ips = listOf(ip),
+                    host = "life.mozzarella.top",
+                    path = "/micro?ed=2560",
+                    interfaceName = physicalInterface
+                ).firstOrNull()
+            }.getOrNull()
+
+            runOnUiThread {
+                if (result?.success == true) {
+                    val old = parseHistory(
+                        getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+                            .getString(KEY_HISTORY, null)
+                    ).firstOrNull { it.ip == ip }
+
+                    if (old != null) {
+                        updateHistoryItem(
+                            old.copy(
+                                vlessLatencyMs = result.latencyMs ?: -1L,
+                                testedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                    statusTextForHistory("单独验证成功：$ip")
+                } else {
+                    statusTextForHistory("单独验证失败：$ip")
+                }
+                renderHistorySection(resultTable, getPersistedSelectedIp())
+            }
+        }
+    }
+
+    private fun statusTextForHistory(message: String) {
+        findViewById<TextView>(R.id.statusText).text = message
     }
 
     private data class RestoredDownloadResult(
