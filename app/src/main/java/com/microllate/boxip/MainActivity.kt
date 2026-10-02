@@ -167,6 +167,19 @@ class MainActivity : Activity() {
 
             executor.execute {
                 try {
+                    val scanStartMs = System.currentTimeMillis()
+                    val scanLog = StringBuilder()
+
+                    fun appendScanLog(message: String) {
+                        val elapsed = (System.currentTimeMillis() - scanStartMs) / 1000.0
+                        runOnUiThread {
+                            scanLog.append(String.format(Locale.US, "[%6.1fs] %s\\n", elapsed, message))
+                            resultText.visibility = View.VISIBLE
+                            resultText.text = scanLog.toString()
+                        }
+                    }
+
+                    appendScanLog("开始测速")
                     val selectedRegion = regionOptions[
                 getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .getInt(KEY_REGION, 0)
@@ -213,12 +226,18 @@ class MainActivity : Activity() {
                         resultText.text = "历史优选 + 随机探索，正在测试 ${candidates.size} 个候选 IP…"
                     }
 
+                    appendScanLog("第一阶段开始 · TCPing 443 · ${candidates.size} 个候选 IP")
+
                     val results = CfstScanner(
                         network = physicalNetwork,
                         pingTimes = 4,
                         timeoutMs = 1000,
                         concurrency = 20
                     ).scan(candidates)
+
+                    appendScanLog(
+                        "第一阶段完成 · TCP 可用 ${results.count { it.received > 0 }} / ${results.size}"
+                    )
 
                     val historicalFastestIps = sampler.getHistoricalFastestIps()
                     val retainedResults = historicalFastestIps.mapNotNull { ip ->
@@ -249,8 +268,10 @@ class MainActivity : Activity() {
                         runOnUiThread {
                             tcpValue.text = results.size.toString()
                             statusText.text = "第二阶段 · Cloudflare 入口质量"
-                            resultText.text = "TCPing 完成，正在测试 ${downloadCandidates.size} 个 IP 的 TCP / TLS / TTFB / 30 秒稳定性…"
                         }
+                        appendScanLog(
+                            "第二阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${downloadCandidates.size} 个 IP"
+                        )
 
                         discoveryResults = CfstDownloader(
                             network = physicalNetwork,
@@ -263,8 +284,10 @@ class MainActivity : Activity() {
                         runOnUiThread {
                             tcpValue.text = results.size.toString()
                             statusText.text = "第二阶段 · ${selectedRegion.label} PoP 探索"
-                            resultText.text = "先用 ${initialCandidates.size} 个候选进行 5 秒轻量探测，寻找实际可达的 ${selectedRegion.label}…"
                         }
+                        appendScanLog(
+                            "第二阶段开始 · ${selectedRegion.label} PoP 探索 · ${initialCandidates.size} 个候选"
+                        )
 
                         discoveryResults = CfstDownloader(
                             network = physicalNetwork,
@@ -328,6 +351,10 @@ class MainActivity : Activity() {
                     val qualityResults = CfstQualityScorer().rank(regionResults)
                     val qualityByIp = qualityResults.associateBy { it.result.ip }
 
+                    appendScanLog(
+                        "第二阶段完成 · 完成质量评分 · Top ${qualityResults.take(10).size} 进入真实验证"
+                    )
+
                     sampler.record(
                         downloadCandidates.map { scanResult ->
                             val downloadResult = allResultByIp[scanResult.ip]
@@ -372,10 +399,10 @@ class MainActivity : Activity() {
                     } else {
                         runOnUiThread {
                             statusText.text = "第三阶段 · 真实 VLESS + WS 验证"
-                            resultText.visibility = View.VISIBLE
-                            resultText.text =
-                                "第二阶段完成，正在验证 Top ${realNodeCandidates.size} 个入口：真实 sing-box → TLS → WS → VLESS…"
                         }
+                        appendScanLog(
+                            "第三阶段开始 · 真实 sing-box → TLS → WS → VLESS · ${realNodeCandidates.size} 个入口"
+                        )
 
                         val metricsByIp = regionResults.associateBy { it.ip }
                         VlessWsScanner(
@@ -393,6 +420,10 @@ class MainActivity : Activity() {
                             }
                         }
                     }
+
+                    appendScanLog(
+                        "第三阶段完成 · VLESS + WS 成功 ${vlessResults.count { it.success }} / ${vlessResults.size}"
+                    )
 
                     // Keep the existing result table data for the first/second stages.
                     // The final selected IP is decided only by a successful real
@@ -414,23 +445,8 @@ class MainActivity : Activity() {
 
                     runOnUiThread {
                         downloadValue.text = regionResults.size.toString()
-                        statusText.text = if (selectedRegion.pops.isEmpty()) {
-                            "测速完成 · 按入口连接质量排序"
-                        } else {
-                            "测速完成 · ${selectedRegion.label}"
-                        }
-                        resultText.visibility = if (displayedResults.isEmpty()) View.VISIBLE else View.GONE
-                        resultText.text = if (displayedResults.isEmpty()) {
-                            if (selectedRegion.pops.isEmpty()) {
-                                "没有成功的入口质量测试结果。"
-                            } else {
-                                "当前网络下未测到 ${selectedRegion.label}，可切换为自动再测试。"
-                            }
-                        } else {
-                            ""
-                        }
+                        statusText.text = "测速完成 · 请确认查看结果"
 
-                        renderHistorySection(resultTable, selectedIp, clearFirst = true)
                         saveLastResults(
                             ranges.ipv4.size,
                             candidates.size,
@@ -443,9 +459,42 @@ class MainActivity : Activity() {
                             vlessResults
                         )
 
-                        startButton.isEnabled = true
-                        themeButton.isEnabled = true
-                        regionSpinner.isEnabled = true
+                        resultTable.removeAllViews()
+                        resultTable.visibility = View.VISIBLE
+
+                        val confirmButton = Button(this@MainActivity).apply {
+                            text = "确定，查看测速结果"
+                            textSize = 14f
+                            minHeight = 0
+                            minimumHeight = 0
+                            setBackgroundResource(R.drawable.bg_primary_button)
+                            setTextColor(getThemeColor(R.attr.boxOnAccent))
+                            setOnClickListener {
+                                resultText.visibility = View.GONE
+                                resultTable.removeAllViews()
+                                resultTable.visibility = View.VISIBLE
+                                statusText.text = if (selectedRegion.pops.isEmpty()) {
+                                    "测速完成 · 按入口连接质量排序"
+                                } else {
+                                    "测速完成 · ${selectedRegion.label}"
+                                }
+                                renderHistorySection(resultTable, selectedIp, clearFirst = true)
+
+                                startButton.isEnabled = true
+                                themeButton.isEnabled = true
+                                regionSpinner.isEnabled = true
+                            }
+                        }
+
+                        resultTable.addView(
+                            confirmButton,
+                            LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                dp(48)
+                            ).apply {
+                                setMargins(dp(4), dp(8), dp(4), dp(8))
+                            }
+                        )
                     }
                 } catch (e: Exception) {
                     runOnUiThread {
