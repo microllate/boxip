@@ -467,7 +467,7 @@ class MainActivity : Activity() {
                             statusText.text = "第三阶段 · 真实 VLESS + WS 验证"
                         }
                         appendScanLog(
-                            "第三阶段开始 · 真实 sing-box → TLS → WS → VLESS · ${realNodeCandidates.size} 个入口"
+                            "第三阶段开始 · 原生 TLS → WS · ${realNodeCandidates.size} 个入口"
                         )
 
                         VlessWsScanner(
@@ -479,7 +479,16 @@ class MainActivity : Activity() {
                             host = "life.mozzarella.top",
                             path = "",
                             interfaceName = physicalInterface
-                        )
+                        ) { result ->
+                            appendScanLog(
+                                "VLESS ${result.ip} · " +
+                                    if (result.success) {
+                                        "成功 · ${result.latencyMs ?: "-"} ms · ${result.stage}"
+                                    } else {
+                                        "失败 · ${result.stage} · ${result.error ?: "未知错误"}"
+                                    }
+                            )
+                        }
                     }
 
                     appendScanLog(
