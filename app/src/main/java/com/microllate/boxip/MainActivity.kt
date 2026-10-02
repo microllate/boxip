@@ -320,6 +320,12 @@ class MainActivity : Activity() {
                     }
                     val resultByIp = regionResults.associateBy { it.ip }
 
+                    // Stage 2 ranking is deliberately separated from CfstDownloader:
+                    // the downloader only measures raw metrics, while this scorer
+                    // turns TCP/TLS/TTFB/download/stability into one quality score.
+                    val qualityResults = CfstQualityScorer().rank(regionResults)
+                    val qualityByIp = qualityResults.associateBy { it.result.ip }
+
                     sampler.record(
                         downloadCandidates.map { scanResult ->
                             val downloadResult = allResultByIp[scanResult.ip]
@@ -344,13 +350,15 @@ class MainActivity : Activity() {
                         }
                     }.sortedWith(
                         compareBy<DownloadDisplayResult> { it.downloadResult == null }
-                            .thenByDescending { it.downloadResult?.stabilityPercent ?: 0.0 }
-                            .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
+                            .thenByDescending { qualityByIp[it.downloadResult?.ip]?.totalScore ?: -1.0 }
                             .thenBy { it.downloadResult?.ttfbMs ?: Long.MAX_VALUE }
+                            .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
                             .thenBy { it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE }
                     )
 
-                    val realNodeCandidates = regionResults.take(10)
+                    val realNodeCandidates = qualityResults
+                        .take(10)
+                        .map { it.result }
 
                     // Keep the existing first/second-stage selection completely intact.
                     // Only the final Top 10 are passed to the real VLESS + WS verifier.
