@@ -605,12 +605,12 @@ class MainActivity : Activity() {
 
             row.addView(top)
 
-            val detailRow1 = LinearLayout(this).apply {
+            val metricsRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            fun addHistoryMetric(parent: LinearLayout, text: String) {
-                parent.addView(TextView(this).apply {
+            fun addHistoryMetric(text: String) {
+                metricsRow.addView(TextView(this).apply {
                     this.text = text
                     setTextColor(getThemeColor(R.attr.boxTextSecondary))
                     textSize = 11f
@@ -620,19 +620,13 @@ class MainActivity : Activity() {
             }
 
             val vless = item.vlessLatencyMs.takeIf { it >= 0L }?.let { "${it} ms" } ?: "-"
-            addHistoryMetric(detailRow1, "VLESS $vless")
-            addHistoryMetric(detailRow1, "TCP ${item.tcpMs.takeIf { it >= 0L } ?: "-"}")
-            addHistoryMetric(detailRow1, "TLS ${item.tlsMs.takeIf { it >= 0L } ?: "-"}")
-            row.addView(detailRow1)
-
-            val detailRow2 = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            addHistoryMetric(detailRow2, "TTFB ${item.ttfbMs.takeIf { it >= 0L } ?: "-"}")
-            addHistoryMetric(detailRow2, String.format(Locale.US, "%.1f MB/s", item.speed))
-            addHistoryMetric(detailRow2, item.pop ?: "区域未知")
-            row.addView(detailRow2)
+            addHistoryMetric("VLESS $vless")
+            addHistoryMetric("TCP ${item.tcpMs.takeIf { it >= 0L } ?: "-"}")
+            addHistoryMetric("TLS ${item.tlsMs.takeIf { it >= 0L } ?: "-"}")
+            addHistoryMetric("TTFB ${item.ttfbMs.takeIf { it >= 0L } ?: "-"}")
+            addHistoryMetric(String.format(Locale.US, "%.1f MB/s", item.speed))
+            addHistoryMetric(item.pop ?: "区域未知")
+            row.addView(metricsRow)
             val divider = View(this).apply {
                 setBackgroundColor(getThemeColor(R.attr.boxDivider))
             }
