@@ -535,9 +535,9 @@ class MainActivity : Activity() {
             row.addView(top)
 
             val detail = TextView(this).apply {
-                val vless = item.vlessLatencyMs.takeIf { it >= 0L }?.let { "\${it} ms" } ?: "-"
+                val vless = item.vlessLatencyMs.takeIf { it >= 0L }?.let { "${it} ms" } ?: "-"
                 val speed = String.format(Locale.US, "%.1f MB/s", item.speed)
-                text = "VLESS $vless   TCP \${item.tcpMs.takeIf { it >= 0L } ?: "-"}   TLS \${item.tlsMs.takeIf { it >= 0L } ?: "-"}   TTFB \${item.ttfbMs.takeIf { it >= 0L } ?: "-"}   $speed"
+                text = "VLESS $vless   TCP ${item.tcpMs.takeIf { it >= 0L } ?: "-"}   TLS ${item.tlsMs.takeIf { it >= 0L } ?: "-"}   TTFB ${item.ttfbMs.takeIf { it >= 0L } ?: "-"}   $speed"
                 setTextColor(getThemeColor(R.attr.boxTextSecondary))
                 textSize = 11f
                 setPadding(0, dp(2), 0, dp(2))
