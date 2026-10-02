@@ -8,8 +8,8 @@
     <string name="theme_dark">深色模式</string>
     <string name="stat_ranges">CF 网段</string>
     <string name="stat_candidates">候选 IP</string>
-    <string name="stat_tcp">TCP 可用</string>
-    <string name="stat_download">下载成功</string>
+    <string name="stat_tcp">TLS+WS 可用</string>
+    <string name="stat_download">最终可用</string>
     <string name="result_title">测速结果</string>
     <string name="region_label">地区</string>
 </resources>
