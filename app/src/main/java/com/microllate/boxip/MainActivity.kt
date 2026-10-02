@@ -63,6 +63,7 @@ class MainActivity : Activity() {
     )
 
     private val executor = Executors.newSingleThreadExecutor()
+    @Volatile private var scanStopRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         applySavedTheme()
@@ -98,6 +99,7 @@ class MainActivity : Activity() {
         val tcpValue = findViewById<TextView>(R.id.tcpValue)
         val downloadValue = findViewById<TextView>(R.id.downloadValue)
         val stageProgress = findViewById<ProgressBar>(R.id.stageProgress)
+        val stopScanButton = findViewById<Button>(R.id.stopScanButton)
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
 
         themeButton.text = themeLabel(currentThemeMode())
@@ -154,6 +156,7 @@ class MainActivity : Activity() {
         }
 
         startButton.setOnClickListener {
+            scanStopRequested = false
             startButton.isEnabled = false
             themeButton.isEnabled = false
             regionSpinner.isEnabled = false
@@ -168,6 +171,8 @@ class MainActivity : Activity() {
             downloadValue.text = "—"
             stageProgress.visibility = View.GONE
             stageProgress.progress = 0
+            stopScanButton.visibility = View.VISIBLE
+            stopScanButton.isEnabled = true
 
             executor.execute {
                 try {
@@ -258,12 +263,12 @@ class MainActivity : Activity() {
                             runOnUiThread {
                                 rangesValue.text = ranges.ipv4.size.toString()
                                 candidatesValue.text = testedIps.size.toString()
-                                statusText.text = "第一阶段 · TCP ≤ 150 ms 筛选"
-                                resultText.text = "随机测试 300 个 IP，寻找 TCP ≤ 150 ms 的入口…"
+                                statusText.text = "第一阶段 · TCP ≤ 200 ms 筛选"
+                                resultText.text = "随机测试 300 个 IP，寻找 TCP ≤ 200 ms 的入口…"
                             }
 
                             appendScanLog(
-                                "第 ${cycleIndex} 轮 · 第一阶段开始 · 随机 300 IP · TCP ≤ 150 ms"
+                                "第 ${cycleIndex} 轮 · 第一阶段开始 · 随机 300 IP · TCP ≤ 200 ms"
                             )
 
                             val batchResults = CfstScanner(
@@ -278,12 +283,12 @@ class MainActivity : Activity() {
                             val tcpCandidates = batchResults
                                 .filter {
                                     it.received > 0 &&
-                                        (it.latencyMs ?: Long.MAX_VALUE) <= 150L
+                                        (it.latencyMs ?: Long.MAX_VALUE) <= 200L
                                 }
                                 .distinctBy { it.ip }
 
                             appendScanLog(
-                                "第一阶段完成 · 本批 TCP ≤ 150 ms：${tcpCandidates.size} 个"
+                                "第一阶段完成 · 本批 TCP ≤ 200 ms：${tcpCandidates.size} 个"
                             )
 
                             if (tcpCandidates.isEmpty()) {
@@ -359,7 +364,7 @@ class MainActivity : Activity() {
                             }
 
                             val currentQualityResults = CfstQualityScorer()
-                                .rank(currentDownloadResults.filter { it.minTcpConnectMs <= 150L })
+                                .rank(currentDownloadResults.filter { it.minTcpConnectMs <= 200L })
 
                             appendScanLog(
                                 "第三阶段完成 · 最终质量结果 ${currentQualityResults.size} 个"
@@ -450,6 +455,18 @@ class MainActivity : Activity() {
 
                     }
 
+                    if (scanStopRequested) {
+                        runOnUiThread {
+                            statusText.text = "测速已手动停止"
+                            resultText.text = "本次测速已停止"
+                            startButton.isEnabled = true
+                            themeButton.isEnabled = true
+                            regionSpinner.isEnabled = true
+                            stopScanButton.visibility = View.GONE
+                        }
+                        return@execute
+                    }
+
                     if (selectedIp != null) {
                         BoxIpDnsServer.setCurrentIp(selectedIp)
                     }
@@ -501,6 +518,7 @@ class MainActivity : Activity() {
                                 startButton.isEnabled = true
                                 themeButton.isEnabled = true
                                 regionSpinner.isEnabled = true
+                                stopScanButton.visibility = View.GONE
                             }
                         }
 
@@ -521,6 +539,7 @@ class MainActivity : Activity() {
                         startButton.isEnabled = true
                         themeButton.isEnabled = true
                         regionSpinner.isEnabled = true
+                        stopScanButton.visibility = View.GONE
                     }
                 }
             }
