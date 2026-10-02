@@ -385,7 +385,7 @@ class MainActivity : Activity() {
                         ).scan(
                             ips = realNodeCandidates.map { it.ip },
                             host = "life.mozzarella.top",
-                            path = "/micro?ed=2560",
+                            path = "",
                             interfaceName = physicalInterface
                         ) { verified ->
                             if (verified.success) {
@@ -1302,7 +1302,7 @@ class MainActivity : Activity() {
                 ).scan(
                     ips = listOf(ip),
                     host = "life.mozzarella.top",
-                    path = "/micro?ed=2560",
+                    path = "",
                     interfaceName = physicalInterface
                 ).firstOrNull()
             }.getOrNull()
@@ -1599,9 +1599,15 @@ class MainActivity : Activity() {
     }
 
     private fun selectIp(ip: String, resultTable: LinearLayout) {
+        // History entries and current scan entries use the exact same selection path.
+        // Changing either one immediately changes the active BoxIP endpoint.
         BoxIpDnsServer.setCurrentIp(ip)
         persistSelectedIp(ip)
         updateSelectionIndicators(resultTable, ip)
+
+        resultTable.findViewWithTag<View>("history_row:$ip")?.let { row ->
+            row.post { row.requestRectangleOnScreen(android.graphics.Rect(0, 0, row.width, row.height), false) }
+        }
     }
 
     private fun updateSelectionIndicators(resultTable: LinearLayout, selectedIp: String) {
