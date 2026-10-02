@@ -28,6 +28,7 @@ data class CfstDownloadResult(
 class CfstDownloader(
     private val network: Network,
     private val downloadUrl: String = "https://speed.cloudflare.com/cdn-cgi/trace",
+    private val speedTestUrl: String = "https://speed.cloudflare.com/__down?bytes=5000000",
     private val observationMs: Int = 30_000,
     private val probeIntervalMs: Int = 5_000,
     private val connectTimeoutMs: Int = 3_000,
@@ -38,7 +39,8 @@ class CfstDownloader(
         val tcpConnectMs: Long,
         val tlsHandshakeMs: Long,
         val ttfbMs: Long,
-        val pop: String?
+        val pop: String?,
+        val downloadSpeedMbps: Double
     )
 
     fun download(ips: List<String>): List<CfstDownloadResult> {
@@ -55,12 +57,7 @@ class CfstDownloader(
 
             futures.mapNotNull { future ->
                 runCatching { future.get() }.getOrNull()
-            }.sortedWith(
-                compareByDescending<CfstDownloadResult> { it.stabilityPercent }
-                    .thenBy { it.tlsHandshakeMs }
-                    .thenBy { it.ttfbMs }
-                    .thenBy { it.tcpConnectMs }
-            )
+            }
         } finally {
             pool.shutdownNow()
         }
@@ -81,6 +78,7 @@ class CfstDownloader(
         var successes = 0
         val successfulProbes = mutableListOf<ProbeResult>()
         var lastPop: String? = null
+        val downloadSpeedMbps = measureDownloadSpeed(ip, speedTestUrl)
 
         while (System.nanoTime() < deadlineNs) {
             val waitNs = nextProbeNs - System.nanoTime()
@@ -132,8 +130,89 @@ class CfstDownloader(
             // as the entry-quality metric.
             downloadSpeedMbps = 0.0,
             durationMs = elapsedMs,
-            pop = lastPop?.uppercase(Locale.US)
+            pop = lastPop?.uppercase(Locale.US),
+            downloadSpeedMbps = downloadSpeedMbps
         )
+    }
+
+    private fun measureDownloadSpeed(ip: String, urlText: String): Double {
+        val uri = URI(urlText)
+        val host = uri.host ?: return 0.0
+        val port = if (uri.port > 0) uri.port else 443
+        if (uri.scheme.lowercase() != "https" || port != 443) return 0.0
+
+        var rawSocket: Socket? = null
+        var sslSocket: SSLSocket? = null
+
+        return try {
+            rawSocket = network.socketFactory.createSocket()
+            rawSocket.connect(InetSocketAddress(ip, 443), connectTimeoutMs)
+            rawSocket.soTimeout = probeTimeoutMs
+
+            val context = SSLContext.getInstance("TLS")
+            context.init(null, null, null)
+
+            sslSocket = context.socketFactory.createSocket(
+                rawSocket,
+                host,
+                443,
+                true
+            ) as SSLSocket
+
+            val sslParameters = sslSocket.sslParameters
+            sslParameters.serverNames = listOf(SNIHostName(host))
+            sslSocket.sslParameters = sslParameters
+            sslSocket.startHandshake()
+
+            val output = BufferedOutputStream(sslSocket.outputStream)
+            val input = BufferedInputStream(sslSocket.inputStream)
+
+            val path = buildString {
+                append(uri.rawPath.ifEmpty { "/" })
+                if (!uri.rawQuery.isNullOrEmpty()) {
+                    append("?")
+                    append(uri.rawQuery)
+                }
+            }
+
+            val request = buildString {
+                append("GET ").append(path).append(" HTTP/1.1\r\n")
+                append("Host: ").append(host).append("\r\n")
+                append("User-Agent: BoxIP-CFST/0.4\r\n")
+                append("Accept-Encoding: identity\r\n")
+                append("Connection: close\r\n\r\n")
+            }
+
+            output.write(request.toByteArray(Charsets.US_ASCII))
+            output.flush()
+
+            val statusLine = readHeader(input) ?: return 0.0
+            if (!statusLine.contains(" 200 ")) return 0.0
+            readHeaders(input) ?: return 0.0
+
+            val buffer = ByteArray(64 * 1024)
+            var totalBytes = 0L
+            val startNs = System.nanoTime()
+
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                totalBytes += count
+            }
+
+            val elapsedNs = System.nanoTime() - startNs
+            if (totalBytes <= 0L || elapsedNs <= 0L) return 0.0
+
+            totalBytes.toDouble() / (elapsedNs / 1_000_000_000.0) / 1_000_000.0
+        } catch (_: Exception) {
+            0.0
+        } finally {
+            runCatching { sslSocket?.close() }
+            if (sslSocket == null) {
+                runCatching { rawSocket?.close() }
+            }
+        }
     }
 
     private fun probe(
