@@ -243,6 +243,7 @@ class MainActivity : Activity() {
                     var realNodeCandidates: List<CfstDownloadResult> = emptyList()
                     var realNodeResults: List<CfstDownloadResult> = emptyList()
                     var selectedIp: String? = null
+                    var finalAvailableCount = 0
 
                     val physicalInterface =
                         connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
@@ -344,7 +345,7 @@ class MainActivity : Activity() {
                             }
 
                             runOnUiThread {
-                                tcpValue.text = tcpCandidates.size.toString()
+                                tcpValue.text = verifiedCandidates.size.toString()
                                 statusText.text = "第三阶段 · Cloudflare 入口质量"
                                 stageProgress.visibility = View.VISIBLE
                                 stageProgress.progress = 0
@@ -383,6 +384,7 @@ class MainActivity : Activity() {
                             }
 
                             vlessResults = currentVlessResults
+                            finalAvailableCount = currentQualityResults.size
                             downloadCandidates = verifiedCandidates
                             downloadResults = currentDownloadResults
                             regionResults = currentDownloadResults
@@ -478,14 +480,22 @@ class MainActivity : Activity() {
                     }
 
                     runOnUiThread {
-                        downloadValue.text = regionResults.size.toString()
+                        downloadValue.text = if (selectedRegion.pops.isEmpty()) {
+                            finalAvailableCount.toString()
+                        } else {
+                            regionResults.size.toString()
+                        }
                         statusText.text = "测速完成 · 请确认查看结果"
 
                         saveLastResults(
                             ranges.ipv4.size,
                             candidates.size,
                             results.size,
-                            downloadResults.size,
+                            if (selectedRegion.pops.isEmpty()) {
+                                finalAvailableCount
+                            } else {
+                                downloadResults.size
+                            },
                             displayedResults,
                             realNodeCandidates,
                             realNodeResults,
