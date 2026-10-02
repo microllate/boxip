@@ -448,7 +448,6 @@ class MainActivity : Activity() {
                             "第一阶段完成 · TCP 可用 ${results.count { it.received > 0 }} / ${results.size}"
                         )
 
-                        initialCandidates = results.shuffled().take(selectedRegion.candidateCount)
                     }
 
                     if (selectedIp != null) {
