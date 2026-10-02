@@ -894,7 +894,7 @@ class MainActivity : Activity() {
                         if (item.success) "${item.tcpMs}" else "失败",
                         if (item.success) "${item.tlsMs}" else "-",
                         if (item.success) "${item.ttfbMs}" else "-",
-                        if (item.success) String.format(Locale.US, "%.0f%%", item.stability) else "-",
+                        if (item.success) String.format(Locale.US, "%.1f MB/s", item.speed) else "-",
                         if (item.success) item.pop else "-"
                     )
                 }
@@ -921,7 +921,7 @@ class MainActivity : Activity() {
                         if (item.success) "${item.tcpMs}" else "失败",
                         if (item.success) "${item.tlsMs}" else "-",
                         if (item.success) "${item.ttfbMs}" else "-",
-                        if (item.success) String.format(Locale.US, "%.0f%%", item.stability) else "-",
+                        if (item.success) String.format(Locale.US, "%.1f MB/s", item.speed) else "-",
                         if (item.success) item.pop else "-",
                         header = false,
                         columnWidths = columnWidths
