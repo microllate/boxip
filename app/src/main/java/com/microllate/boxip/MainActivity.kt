@@ -404,7 +404,6 @@ class MainActivity : Activity() {
                             "第三阶段开始 · 真实 sing-box → TLS → WS → VLESS · ${realNodeCandidates.size} 个入口"
                         )
 
-                        val metricsByIp = regionResults.associateBy { it.ip }
                         VlessWsScanner(
                             network = physicalNetwork,
                             timeoutMs = 8_000,
@@ -1183,6 +1182,15 @@ class MainActivity : Activity() {
 
         if (selectedIp == ip) {
             editor.remove("selectedIp")
+            val snapshotRaw = prefs.getString(KEY_RESULTS_SNAPSHOT, null)
+            if (!snapshotRaw.isNullOrEmpty()) {
+                runCatching {
+                    JSONObject(snapshotRaw).apply {
+                        put("selectedIp", "")
+                        put("savedAt", System.currentTimeMillis())
+                    }.toString()
+                }.onSuccess { editor.putString(KEY_RESULTS_SNAPSHOT, it) }
+            }
             BoxIpDnsServer.setCurrentIp("")
         }
 
