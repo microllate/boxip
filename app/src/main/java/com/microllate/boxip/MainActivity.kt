@@ -318,7 +318,7 @@ class MainActivity : Activity() {
                     if (selectedRegion.pops.isEmpty()) {
                         downloadCandidates = initialCandidates
                         runOnUiThread {
-                            tcpValue.text = results.size.toString()
+                            tcpValue.text = initialCandidates.size.toString()
                             statusText.text = "第二阶段 · Cloudflare 入口质量"
                         }
                         appendScanLog(
