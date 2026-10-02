@@ -412,7 +412,7 @@ class MainActivity : Activity() {
                     // the downloader only measures raw metrics, while this scorer
                     // turns TCP/TLS/TTFB/download/stability into one quality score.
                     val qualityResults = CfstQualityScorer()
-                        .rank(regionResults.filter { it.tcpConnectMs < 200L })
+                        .rank(regionResults.filter { it.minTcpConnectMs < 200L })
                     val qualityByIp = qualityResults.associateBy { it.result.ip }
 
                     runOnUiThread { stageProgress.progress = 100 }
