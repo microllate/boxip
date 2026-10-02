@@ -1180,7 +1180,9 @@ class MainActivity : Activity() {
         val selectedIp = getPersistedSelectedIp()
         val editor = prefs.edit().putString(KEY_HISTORY, serializeHistory(history))
 
-        if (selectedIp == ip) {
+        if (selectedIp == ip && resultTable.findViewWithTag<View>(ip) == null) {
+            // If this IP is not part of the current scan results either, clear the active endpoint.
+            // Otherwise deleting its history entry must not disturb the current scan selection.
             editor.remove("selectedIp")
             val snapshotRaw = prefs.getString(KEY_RESULTS_SNAPSHOT, null)
             if (!snapshotRaw.isNullOrEmpty()) {
