@@ -414,11 +414,7 @@ class MainActivity : Activity() {
                             host = "life.mozzarella.top",
                             path = "",
                             interfaceName = physicalInterface
-                        ) { verified ->
-                            if (verified.success) {
-                                saveSuccessfulVlessToHistory(verified, metricsByIp)
-                            }
-                        }
+                        )
                     }
 
                     appendScanLog(
@@ -521,60 +517,7 @@ class MainActivity : Activity() {
         val downloadResult: CfstDownloadResult?
     )
 
-    private fun renderVlessAndHistorySection(
-        resultTable: LinearLayout,
-        selectedIp: String?,
-        vlessResults: List<VlessWsResult>
-    ) {
-        resultTable.removeAllViews()
-        resultTable.visibility = View.VISIBLE
-        renderVlessSection(resultTable, vlessResults)
-        renderHistorySection(resultTable, selectedIp, clearFirst = false)
-    }
-
-    private fun renderVlessSection(
-        resultTable: LinearLayout,
-        vlessResults: List<VlessWsResult>
-    ) {
-        if (vlessResults.isEmpty()) return
-
-        val domainSection = TextView(this).apply {
-            text = "真实节点域名验证 · life.mozzarella.top"
-            setTextColor(getThemeColor(R.attr.boxTextPrimary))
-            textSize = 13f
-            setPadding(dp(4), dp(18), dp(4), dp(8))
-        }
-        resultTable.addView(domainSection)
-
-        val vlessSection = TextView(this).apply {
-            text = "真实 VLESS + WS 验证"
-            setTextColor(getThemeColor(R.attr.boxTextPrimary))
-            textSize = 13f
-            setPadding(dp(4), 0, dp(4), dp(8))
-        }
-        resultTable.addView(vlessSection)
-
-        vlessResults
-            .sortedWith(compareBy<VlessWsResult> { !it.success }.thenBy { it.latencyMs ?: Long.MAX_VALUE })
-            .forEach { result ->
-                val row = TextView(this).apply {
-                    text = if (result.success) {
-                        "✓ ${result.ip}   成功   " +
-                            (result.latencyMs?.let { "${it} ms" } ?: "-") +
-                            "   ${result.stage}"
-                    } else {
-                        "✕ ${result.ip}   ${result.error ?: "失败"}"
-                    }
-                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
-                    textSize = 12f
-                    setPadding(dp(4), dp(6), dp(4), dp(6))
-                    maxLines = 4
-                }
-                resultTable.addView(row)
-            }
-    }
-
-        private fun renderHistorySection(
+    private fun renderHistorySection(
         resultTable: LinearLayout,
         selectedIp: String?,
         clearFirst: Boolean = true
@@ -1171,24 +1114,6 @@ class MainActivity : Activity() {
             ?.takeIf { it.isNotEmpty() }
     }
 
-    private fun saveSuccessfulVlessToHistory(
-        verified: VlessWsResult,
-        metricsByIp: Map<String, CfstDownloadResult>
-    ) {
-        val metrics = metricsByIp[verified.ip]
-        val item = HistoryResult(
-            ip = verified.ip,
-            tcpMs = metrics?.tcpConnectMs ?: -1L,
-            tlsMs = metrics?.tlsHandshakeMs ?: -1L,
-            ttfbMs = metrics?.ttfbMs ?: -1L,
-            speed = metrics?.downloadSpeedMbps ?: 0.0,
-            pop = metrics?.pop,
-            vlessLatencyMs = verified.latencyMs ?: -1L,
-            testedAt = System.currentTimeMillis()
-        )
-        updateHistoryItem(item)
-    }
-
     private fun updateHistoryItem(item: HistoryResult) {
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
         val history = parseHistory(prefs.getString(KEY_HISTORY, null)).toMutableList()
@@ -1250,16 +1175,39 @@ class MainActivity : Activity() {
 
     private fun deleteHistoryIp(ip: String, resultTable: LinearLayout) {
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
-        val history = parseHistory(prefs.getString(KEY_HISTORY, null)).filterNot { it.ip == ip }
+        val history = parseHistory(prefs.getString(KEY_HISTORY, null))
+            .filterNot { it.ip == ip }
+
+        val selectedIp = getPersistedSelectedIp()
         val editor = prefs.edit().putString(KEY_HISTORY, serializeHistory(history))
 
-        if (getPersistedSelectedIp() == ip) {
+        if (selectedIp == ip) {
             editor.remove("selectedIp")
             BoxIpDnsServer.setCurrentIp("")
         }
 
         editor.commit()
-        renderHistorySection(resultTable, getPersistedSelectedIp())
+
+        // Remove only this history row. Keep the current scan results and their layout intact.
+        resultTable.findViewWithTag<View>("history_row:$ip")?.let { row ->
+            resultTable.removeView(row)
+        }
+
+        val remainingHistoryRows = (0 until resultTable.childCount)
+            .map { resultTable.getChildAt(it) }
+            .count { (it.tag as? String)?.startsWith("history_row:") == true }
+
+        if (remainingHistoryRows == 0 && history.isNotEmpty()) {
+            // No-op: this can only happen if the row was not currently rendered.
+        } else if (remainingHistoryRows == 0) {
+            resultTable.addView(TextView(this).apply {
+                tag = "history_empty"
+                text = "暂无通过真实 VLESS + WS 验证的节点"
+                setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                textSize = 12f
+                setPadding(dp(4), dp(8), dp(4), dp(12))
+            })
+        }
     }
 
     private fun retestHistoryIp(ip: String, resultTable: LinearLayout) {
@@ -1291,8 +1239,8 @@ class MainActivity : Activity() {
 
         executor.execute {
             val result = runCatching {
-                var lastResult: VlessWsResult? = null
-                repeat(3) {
+                var result: VlessWsResult? = null
+                for (attemptIndex in 0 until 3) {
                     val attempt = VlessWsScanner(
                         network = physicalNetwork,
                         timeoutMs = 8_000,
@@ -1303,10 +1251,10 @@ class MainActivity : Activity() {
                         path = "",
                         interfaceName = physicalInterface
                     ).firstOrNull()
-                    lastResult = attempt
-                    if (attempt?.success == true) return@repeat
+                    result = attempt
+                    if (attempt?.success == true) break
                 }
-                lastResult
+                result
             }.getOrNull()
 
             runOnUiThread {
