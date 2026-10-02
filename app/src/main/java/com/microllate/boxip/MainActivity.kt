@@ -376,6 +376,7 @@ class MainActivity : Activity() {
                                 "仅验证 Top ${realNodeCandidates.size} 个入口：真实 sing-box → TLS → WS → VLESS…"
                         }
 
+                        val metricsByIp = regionResults.associateBy { it.ip }
                         VlessWsScanner(
                             network = physicalNetwork,
                             timeoutMs = 8_000,
@@ -385,7 +386,14 @@ class MainActivity : Activity() {
                             host = "life.mozzarella.top",
                             path = "/micro?ed=2560",
                             interfaceName = physicalInterface
-                        )
+                        ) { verified ->
+                            if (verified.success) {
+                                saveSuccessfulVlessToHistory(verified, metricsByIp)
+                                runOnUiThread {
+                                    renderHistorySection(resultTable, getPersistedSelectedIp(), clearFirst = false)
+                                }
+                            }
+                        }
                     }
 
                     // Keep the existing result table data for the first/second stages.
@@ -1114,6 +1122,24 @@ class MainActivity : Activity() {
         return getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
             .getString("selectedIp", null)
             ?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun saveSuccessfulVlessToHistory(
+        verified: VlessWsResult,
+        metricsByIp: Map<String, CfstDownloadResult>
+    ) {
+        val metrics = metricsByIp[verified.ip]
+        val item = HistoryResult(
+            ip = verified.ip,
+            tcpMs = metrics?.tcpConnectMs ?: -1L,
+            tlsMs = metrics?.tlsHandshakeMs ?: -1L,
+            ttfbMs = metrics?.ttfbMs ?: -1L,
+            speed = metrics?.downloadSpeedMbps ?: 0.0,
+            pop = metrics?.pop,
+            vlessLatencyMs = verified.latencyMs ?: -1L,
+            testedAt = System.currentTimeMillis()
+        )
+        updateHistoryItem(item)
     }
 
     private fun updateHistoryItem(item: HistoryResult) {
