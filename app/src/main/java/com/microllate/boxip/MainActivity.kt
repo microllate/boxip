@@ -1221,7 +1221,7 @@ class MainActivity : Activity() {
             }
         }
         resultTable.addView(card)
-        resultTable.addView(Space(this).apply {
+        resultTable.addView(View(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(24)
