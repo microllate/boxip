@@ -1042,6 +1042,11 @@ class MainActivity : Activity() {
             textSize = 11f
             includeFontPadding = false
             gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            marginStart = dp(8)
         })
 
         card.addView(historyHeader, LinearLayout.LayoutParams(
