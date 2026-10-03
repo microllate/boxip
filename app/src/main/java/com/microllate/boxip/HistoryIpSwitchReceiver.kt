@@ -89,6 +89,11 @@ class HistoryIpSwitchReceiver : BroadcastReceiver() {
 
         editor.commit()
 
+        // If the BoxIP Activity is currently visible, update its selection
+        // indicator immediately. If it is not running, persisted selectedIp
+        // will be restored the next time the Activity opens.
+        MainActivity.notifyExternalSelectionChanged(next.ip)
+
         return "Switched historical IP: " + currentIp + " -> " + next.ip
     }
 
