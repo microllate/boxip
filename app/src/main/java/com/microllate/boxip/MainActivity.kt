@@ -1004,6 +1004,15 @@ class MainActivity : Activity() {
         val history = parseHistory(prefs.getString(KEY_HISTORY, null))
             .sortedByDescending { it.testedAt }
 
+        card.addView(TextView(this).apply {
+            tag = "history_section_title"
+            text = "历史记录"
+            setTextColor(getThemeColor(R.attr.boxTextPrimary))
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, dp(10))
+        })
+
         if (history.isEmpty()) {
             card.addView(TextView(this).apply {
                 text = "暂无通过真实 VLESS + WS 验证的节点"
