@@ -68,9 +68,6 @@ class HistoryIpSwitchReceiver : BroadcastReceiver() {
             return "No alternate historical IP available"
         }
 
-        // Initialize the root hosts file even when the app process was not
-        // already running.
-        BoxIpDnsServer.start(context)
         BoxIpDnsServer.setCurrentIp(next.ip)
 
         val snapshot = prefs.getString(KEY_SNAPSHOT, null)
