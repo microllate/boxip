@@ -493,7 +493,9 @@ class MainActivity : Activity() {
                             break
                         }
                     } else {
-                        // Region mode keeps its existing discovery behavior.
+                        // Region mode keeps the original PoP-discovery flow:
+                        // TCP candidates -> 5s PoP observation -> target-PoP selection
+                        // -> 30s quality test -> final real VLESS + WS verification.
                         val sampled = sampler.sample(ranges.ipv4)
                         candidates += sampled
 
@@ -501,22 +503,227 @@ class MainActivity : Activity() {
                             rangesValue.text = ranges.ipv4.size.toString()
                             candidatesValue.text = candidates.size.toString()
                             statusText.text = "第一阶段 · 自适应 TCPing 443"
-                            resultText.text = "历史优选 + 随机探索，正在测试 ${candidates.size} 个候选 IP…"
+                            resultText.text = "历史优选 + 随机探索，正在测试 ${sampled.size} 个候选 IP…"
                         }
 
-                        appendScanLog("第一阶段开始 · TCPing 443 · ${candidates.size} 个候选 IP")
+                        appendScanLog("第一阶段开始 · TCPing 443 · ${sampled.size} 个候选 IP")
 
-                        results += CfstScanner(
+                        val sampledResults = CfstScanner(
                             network = physicalNetwork,
                             pingTimes = 4,
                             timeoutMs = 1000,
                             concurrency = 20
                         ).scan(sampled)
 
+                        results += sampledResults
+
                         appendScanLog(
-                            "第一阶段完成 · TCP 可用 ${results.count { it.received > 0 }} / ${results.size}"
+                            "第一阶段完成 · TCP 可用 ${sampledResults.count { it.received > 0 }} / ${sampledResults.size}"
                         )
 
+                        if (stopIfRequested()) return@execute
+
+                        val initialCandidates = sampledResults
+                            .filter { it.received > 0 }
+                            .shuffled()
+                            .take(selectedRegion.candidateCount)
+
+                        if (initialCandidates.isEmpty()) {
+                            appendScanLog(
+                                "${selectedRegion.label} 模式 · 没有 TCP 可用候选，重新开始"
+                            )
+                            continue
+                        }
+
+                        runOnUiThread {
+                            tcpValue.text = initialCandidates.size.toString()
+                            statusText.text = "第二阶段 · ${selectedRegion.label} PoP 探索"
+                            resultText.text =
+                                "先用 ${initialCandidates.size} 个候选进行 5 秒轻量探测，寻找实际可达的 ${selectedRegion.label}…"
+                        }
+
+                        appendScanLog(
+                            "第二阶段开始 · 5 秒 PoP 探索 · ${initialCandidates.size} 个候选"
+                        )
+
+                        val discoveryResults = CfstDownloader(
+                            network = physicalNetwork,
+                            observationMs = 5_000,
+                            probeIntervalMs = 5_000,
+                            connectTimeoutMs = 3_000,
+                            probeTimeoutMs = 3_000,
+                            concurrency = 8
+                        ).download(initialCandidates.map { it.ip })
+
+                        val matchingDiscovery = discoveryResults
+                            .filter { it.pop in selectedRegion.pops }
+                            .sortedWith(
+                                compareByDescending<CfstDownloadResult> { it.stabilityPercent }
+                                    .thenBy { it.tlsHandshakeMs }
+                                    .thenBy { it.ttfbMs }
+                                    .thenBy { it.tcpConnectMs }
+                            )
+
+                        val matchingIps = matchingDiscovery
+                            .take(10)
+                            .map { it.ip }
+                            .toSet()
+
+                        downloadCandidates = sampledResults
+                            .filter { it.ip in matchingIps }
+                            .sortedBy { result ->
+                                matchingDiscovery.indexOfFirst { it.ip == result.ip }
+                            }
+
+                        appendScanLog(
+                            "PoP 探索完成 · ${selectedRegion.label} 匹配 ${downloadCandidates.size} 个"
+                        )
+
+                        if (stopIfRequested()) return@execute
+
+                        if (downloadCandidates.isEmpty()) {
+                            appendScanLog(
+                                "本次未观察到 ${selectedRegion.label} · 重新随机探索"
+                            )
+                            continue
+                        }
+
+                        runOnUiThread {
+                            statusText.text = "第三阶段 · ${selectedRegion.label} 入口质量"
+                            resultText.text =
+                                "发现 ${downloadCandidates.size} 个 ${selectedRegion.label} 入口，正在进行 30 秒完整质量测试…"
+                            stageProgress.visibility = View.VISIBLE
+                            stageProgress.progress = 0
+                        }
+
+                        appendScanLog(
+                            "第三阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${downloadCandidates.size} 个 IP"
+                        )
+
+                        val currentDownloadResults = CfstDownloader(
+                            network = physicalNetwork,
+                            observationMs = 30_000,
+                            probeIntervalMs = 5_000,
+                            connectTimeoutMs = 3_000,
+                            probeTimeoutMs = 3_000,
+                            concurrency = 3
+                        ).download(downloadCandidates.map { it.ip }) { completed, total ->
+                            val percent =
+                                (completed * 100 / total.coerceAtLeast(1)).coerceIn(0, 100)
+                            runOnUiThread {
+                                stageProgress.progress = percent
+                            }
+                        }
+
+                        val currentQualityResults = CfstQualityScorer()
+                            .rank(currentDownloadResults.filter { it.minTcpConnectMs <= 200L })
+
+                        finalQualityResults = currentQualityResults
+
+                        appendScanLog(
+                            "第三阶段完成 · ${selectedRegion.label} 最终质量结果 ${currentQualityResults.size} 个"
+                        )
+
+                        if (stopIfRequested()) return@execute
+
+                        if (currentQualityResults.isEmpty()) {
+                            appendScanLog(
+                                "${selectedRegion.label} 质量结果为空 · 重新随机探索"
+                            )
+                            runOnUiThread { stageProgress.progress = 0 }
+                            continue
+                        }
+
+                        vlessResults = VlessWsScanner(
+                            network = physicalNetwork,
+                            timeoutMs = 8_000,
+                            concurrency = 4
+                        ).scan(
+                            ips = currentQualityResults.take(10).map { it.result.ip },
+                            host = "life.mozzarella.top",
+                            path = ""
+                        ) { result ->
+                            appendScanLog(
+                                "VLESS ${result.ip} · " +
+                                    if (result.success) {
+                                        "成功 · ${result.latencyMs ?: "-"} ms · ${result.stage}"
+                                    } else {
+                                        "失败 · ${result.stage} · ${result.error ?: "未知错误"}"
+                                    }
+                            )
+                        }
+
+                        val successfulVless = vlessResults
+                            .filter { it.success }
+                            .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
+
+                        appendScanLog(
+                            "真实 VLESS + WS 完成 · 成功 ${successfulVless.size} / ${vlessResults.size}"
+                        )
+
+                        if (stopIfRequested()) return@execute
+
+                        if (successfulVless.isEmpty()) {
+                            appendScanLog(
+                                "${selectedRegion.label} 没有通过真实 VLESS + WS 的入口 · 重新随机探索"
+                            )
+                            continue
+                        }
+
+                        val qualityByIp = currentQualityResults.associateBy { it.result.ip }
+
+                        downloadCandidates = currentQualityResults.map { it.result }
+                        downloadResults = currentDownloadResults
+                        regionResults = currentDownloadResults.filter {
+                            it.pop in selectedRegion.pops
+                        }
+                        realNodeCandidates = currentQualityResults.take(10).map { it.result }
+                        realNodeResults = realNodeCandidates.mapNotNull { candidate ->
+                            regionResults.firstOrNull { it.ip == candidate.ip }
+                        }
+                        finalAvailableCount = currentQualityResults.size
+
+                        selectedIp = successfulVless
+                            .firstOrNull()
+                            ?.ip
+                            ?: qualityByIp.keys.firstOrNull()
+
+                        displayedResults = downloadCandidates.map { scanResult ->
+                            DownloadDisplayResult(
+                                scanResult,
+                                regionResults.firstOrNull { it.ip == scanResult.ip }
+                            )
+                        }.filter { it.downloadResult != null }
+                            .sortedWith(
+                                compareByDescending<DownloadDisplayResult> {
+                                    qualityByIp[it.ip]?.totalScore ?: -1.0
+                                }
+                                    .thenBy {
+                                        it.downloadResult?.ttfbMs ?: Long.MAX_VALUE
+                                    }
+                                    .thenBy {
+                                        it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE
+                                    }
+                                    .thenBy {
+                                        it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE
+                                    }
+                            )
+
+                        sampler.record(
+                            downloadCandidates.map { scanResult ->
+                                val downloadResult =
+                                    currentDownloadResults.firstOrNull { it.ip == scanResult.ip }
+                                CfstLearningObservation(
+                                    ip = scanResult.ip,
+                                    downloadSpeedMbps = downloadResult?.downloadSpeedMbps ?: 0.0,
+                                    latencyMs = scanResult.latencyMs,
+                                    success = downloadResult != null
+                                )
+                            }
+                        )
+
+                        runOnUiThread { stageProgress.progress = 100 }
+                        break
                     }
 
                     if (stopIfRequested()) return@execute
