@@ -1505,6 +1505,12 @@ class MainActivity : Activity() {
     ) {
         val card = createSectionCard("restored_last_test_card")
         resultTable.addView(card)
+        resultTable.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(32)
+            )
+        })
 
         card.addView(TextView(this).apply {
             text = "上次测试"
