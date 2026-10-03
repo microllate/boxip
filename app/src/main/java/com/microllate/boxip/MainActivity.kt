@@ -1388,7 +1388,7 @@ class MainActivity : Activity() {
                 }
 
                 setHistoryRetestState(resultTable, ip, false)
-                renderHistorySection(resultTable, selectedIp, clearFirst = true)
+                renderHistorySection(resultTable, getPersistedSelectedIp(), clearFirst = true)
             }
         }
     }
