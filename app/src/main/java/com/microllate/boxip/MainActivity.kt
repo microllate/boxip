@@ -531,6 +531,7 @@ class MainActivity : Activity() {
                                     resultTable,
                                     realNodeCandidates,
                                     realNodeResults,
+                                    finalQualityResults,
                                     selectedIp,
                                     vlessResults
                                 )
