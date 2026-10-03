@@ -200,8 +200,9 @@ class CfstDownloader(
             val buffer = ByteArray(64 * 1024)
             var totalBytes = 0L
             val startNs = System.nanoTime()
+            val speedDeadlineNs = startNs + 10_000_000_000L
 
-            while (true) {
+            while (System.nanoTime() < speedDeadlineNs) {
                 val count = input.read(buffer)
                 if (count < 0) break
                 if (count == 0) continue
