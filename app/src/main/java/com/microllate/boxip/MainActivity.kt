@@ -652,6 +652,11 @@ class MainActivity : Activity() {
                 marginEnd = dp(6)
             })
 
+            val ipInfo = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+
             val ipText = TextView(this).apply {
                 text = item.ip
                 setTextColor(getThemeColor(R.attr.boxTextSecondary))
@@ -660,7 +665,7 @@ class MainActivity : Activity() {
                 maxLines = 1
                 setOnClickListener { selectIp(item.ip, resultTable) }
             }
-            top.addView(ipText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            ipInfo.addView(ipText)
 
             val timeText = TextView(this).apply {
                 text = if (item.testedAt > 0L) {
@@ -673,12 +678,23 @@ class MainActivity : Activity() {
                 textSize = 9f
                 includeFontPadding = false
                 maxLines = 1
-                gravity = Gravity.CENTER_VERTICAL or Gravity.END
-                setPadding(dp(2), 0, 0, 0)
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(6), 0, 0, 0)
             }
-            top.addView(timeText, LinearLayout.LayoutParams(
+            ipInfo.addView(timeText, LinearLayout.LayoutParams(
                 dp(70),
                 LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+
+            top.addView(ipInfo, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+
+            top.addView(View(this), LinearLayout.LayoutParams(
+                0,
+                1,
+                1f
             ))
 
             val retestSpinner = RetestSpinnerView(this).apply {
