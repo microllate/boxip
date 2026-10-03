@@ -596,12 +596,23 @@ class MainActivity : Activity() {
                     .thenByDescending { it.testedAt }
             )
 
+        // Visually separate historical nodes from the current scan section.
+        resultTable.addView(View(this).apply {
+            setBackgroundColor(getThemeColor(R.attr.boxDivider))
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(1)
+        ).apply {
+            setMargins(dp(4), dp(16), dp(4), dp(8))
+        })
+
         resultTable.addView(TextView(this).apply {
             tag = "history_section_title"
             text = "历史可用节点"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
-            textSize = 13f
-            setPadding(dp(4), dp(18), dp(4), dp(8))
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(4), dp(4), dp(4), dp(10))
         })
 
         if (history.isEmpty()) {
@@ -761,10 +772,11 @@ class MainActivity : Activity() {
         vlessResults: List<VlessWsResult>
     ) {
         val section = TextView(this).apply {
-            text = "真实节点域名验证 · life.mozzarella.top"
+            text = "本次测速 · 真实节点验证"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
-            textSize = 13f
-            setPadding(dp(4), dp(18), dp(4), dp(8))
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(4), dp(18), dp(4), dp(10))
         }
         resultTable.addView(section)
 
