@@ -23,7 +23,7 @@ data class VlessWsResult(
  * local SOCKS listener, or temporary configuration is required.
  */
 class VlessWsScanner(
-    @Suppress("UNUSED_PARAMETER") private val network: Network,
+    private val network: Network,
     private val timeoutMs: Int = 8_000,
     private val concurrency: Int = 4
 ) {
@@ -143,7 +143,7 @@ class VlessWsScanner(
             // A single successful handshake is treated as an outlier; at least
             // two successful handshakes are required for the IP to pass.
             val attempts = (1..3).map {
-                NativeVlessWsClient(timeoutMs).probe(
+                NativeVlessWsClient(network, timeoutMs).probe(
                     ip = ip,
                     port = profile.serverPort,
                     serverName = profile.tlsServerName.ifBlank { host },
