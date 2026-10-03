@@ -1319,7 +1319,9 @@ class MainActivity : Activity() {
             ?.interfaceName
 
         historyExecutor.execute {
+            var failureStage = "执行异常"
             val outcome = runCatching {
+                failureStage = "TCP"
                 val tcpResult = CfstScanner(
                     network = physicalNetwork,
                     pingTimes = 4,
@@ -1334,6 +1336,7 @@ class MainActivity : Activity() {
                     return@runCatching null
                 }
 
+                failureStage = "TLS+WS"
                 val vlessResult = VlessWsScanner(
                     network = physicalNetwork,
                     timeoutMs = 8_000,
@@ -1349,6 +1352,7 @@ class MainActivity : Activity() {
                     return@runCatching null
                 }
 
+                failureStage = "质量"
                 val qualityResult = CfstDownloader(
                     network = physicalNetwork,
                     observationMs = 30_000,
@@ -1396,7 +1400,7 @@ class MainActivity : Activity() {
                             "TLS+WS ${vlessResult.latencyMs ?: "-"} ms"
                     )
                 } else {
-                    statusTextForHistory("重测失败：$ip · 未通过三阶段测试")
+                    statusTextForHistory("重测失败：$ip · $failureStage 阶段")
                 }
 
                 setHistoryRetestState(resultTable, ip, false)
