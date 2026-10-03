@@ -1281,7 +1281,8 @@ class MainActivity : Activity() {
     private fun retestHistoryIp(ip: String, resultTable: LinearLayout) {
         if (!retestingHistoryIps.add(ip)) return
 
-        // Do not rebuild the result page. Only toggle the local spinner/button state.
+        // Retest this historical IP through the same three stages as the main scan:
+        // TCP <= 200 ms -> TLS + WS -> 30 s quality test.
         setHistoryRetestState(resultTable, ip, true)
 
         val connectivityManager = getSystemService(ConnectivityManager::class.java)
@@ -1306,56 +1307,91 @@ class MainActivity : Activity() {
             ?.interfaceName
 
         executor.execute {
-            val result = runCatching {
-                var result: VlessWsResult? = null
-                for (attemptIndex in 0 until 3) {
-                    val attempt = VlessWsScanner(
-                        network = physicalNetwork,
-                        timeoutMs = 8_000,
-                        concurrency = 1
-                    ).scan(
-                        ips = listOf(ip),
-                        host = "life.mozzarella.top",
-                        path = "",
-                        interfaceName = physicalInterface
-                    ).firstOrNull()
-                    result = attempt
-                    if (attempt?.success == true) break
+            val outcome = runCatching {
+                val tcpResult = CfstScanner(
+                    network = physicalNetwork,
+                    pingTimes = 4,
+                    timeoutMs = 1_000,
+                    concurrency = 1
+                ).scan(listOf(ip)).firstOrNull()
+
+                if (tcpResult == null ||
+                    tcpResult.received <= 0 ||
+                    (tcpResult.latencyMs ?: Long.MAX_VALUE) > 200L
+                ) {
+                    return@runCatching null
                 }
-                result
+
+                val vlessResult = VlessWsScanner(
+                    network = physicalNetwork,
+                    timeoutMs = 8_000,
+                    concurrency = 1
+                ).scan(
+                    ips = listOf(ip),
+                    host = "life.mozzarella.top",
+                    path = "",
+                    interfaceName = physicalInterface
+                ).firstOrNull()
+
+                if (vlessResult?.success != true) {
+                    return@runCatching null
+                }
+
+                val qualityResult = CfstDownloader(
+                    network = physicalNetwork,
+                    observationMs = 30_000,
+                    probeIntervalMs = 5_000,
+                    connectTimeoutMs = 3_000,
+                    probeTimeoutMs = 3_000,
+                    concurrency = 1
+                ).download(listOf(ip)).firstOrNull()
+
+                if (qualityResult == null || qualityResult.minTcpConnectMs > 200L) {
+                    return@runCatching null
+                }
+
+                val ranked = CfstQualityScorer().rank(listOf(qualityResult)).firstOrNull()
+                    ?: return@runCatching null
+
+                Triple(tcpResult, vlessResult, ranked.result)
             }.getOrNull()
 
             runOnUiThread {
                 retestingHistoryIps.remove(ip)
 
-                if (result?.success == true) {
-                    val old = parseHistory(
-                        getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
-                            .getString(KEY_HISTORY, null)
-                    ).firstOrNull { it.ip == ip }
+                if (outcome != null) {
+                    val (tcpResult, vlessResult, finalResult) = outcome
+                    val updated = HistoryResult(
+                        ip = ip,
+                        tcpMs = finalResult.tcpConnectMs,
+                        tlsMs = finalResult.tlsHandshakeMs,
+                        ttfbMs = finalResult.ttfbMs,
+                        speed = finalResult.downloadSpeedMbps,
+                        pop = finalResult.pop,
+                        vlessLatencyMs = vlessResult.latencyMs ?: -1L,
+                        testedAt = System.currentTimeMillis()
+                    )
 
-                    if (old != null) {
-                        updateHistoryItem(
-                            old.copy(
-                                vlessLatencyMs = result.latencyMs ?: -1L,
-                                testedAt = System.currentTimeMillis()
-                            )
-                        )
-                        result.latencyMs?.let {
-                            updateHistoryVlessMetric(resultTable, ip, it)
-                        }
-                        statusTextForHistory("单独验证成功：$ip · VLESS " + (result.latencyMs ?: "-") + " ms")
-                    }
+                    updateHistoryItem(updated)
+                    updateHistoryVlessMetric(
+                        resultTable,
+                        ip,
+                        vlessResult.latencyMs ?: -1L
+                    )
+
+                    statusTextForHistory(
+                        "重测成功：$ip · TCP ${tcpResult.latencyMs ?: "-"} ms · " +
+                            "TLS+WS ${vlessResult.latencyMs ?: "-"} ms"
+                    )
                 } else {
-                    statusTextForHistory("单独验证失败：$ip")
+                    statusTextForHistory("重测失败：$ip · 未通过三阶段测试")
                 }
 
-                // Restore only this row's controls. The rest of the page is untouched.
                 setHistoryRetestState(resultTable, ip, false)
+                renderHistorySection(resultTable, clearFirst = true)
             }
         }
     }
-
     private fun statusTextForHistory(message: String) {
         findViewById<TextView>(R.id.statusText).text = message
     }
