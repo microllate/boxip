@@ -27,6 +27,17 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     companion object {
+        @Volatile
+        private var activeInstance: MainActivity? = null
+
+        fun notifyExternalSelectionChanged(ip: String) {
+            activeInstance?.runOnUiThread { activity ->
+                activity.boundResultTable?.let { table ->
+                    activity.updateSelectionIndicators(table, ip)
+                }
+            }
+        }
+
         private const val PREFS = "boxip_ui"
         private const val KEY_THEME = "theme"
         private const val THEME_SYSTEM = 0
@@ -65,11 +76,13 @@ class MainActivity : Activity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val historyExecutor = Executors.newCachedThreadPool()
     @Volatile private var scanStopRequested = false
+    private var boundResultTable: LinearLayout? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         applySavedTheme()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        activeInstance = this
 
         // Start BoxIP's loopback-only DNS server for the MVP.
         // It only listens on 127.0.0.1:1053 and does not affect system DNS.
@@ -92,6 +105,7 @@ class MainActivity : Activity() {
         val statusText = findViewById<TextView>(R.id.statusText)
         val resultText = findViewById<TextView>(R.id.resultText)
         val resultTable = findViewById<LinearLayout>(R.id.resultTable)
+        boundResultTable = resultTable
         val startButton = findViewById<Button>(R.id.startScanButton)
         val themeButton = findViewById<TextView>(R.id.themeButton)
         val regionSpinner = findViewById<Spinner>(R.id.regionSpinner)
@@ -1909,6 +1923,10 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (activeInstance === this) {
+            activeInstance = null
+        }
+        boundResultTable = null
         executor.shutdownNow()
         historyExecutor.shutdownNow()
         super.onDestroy()
