@@ -17,6 +17,7 @@ import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.LinearLayout
@@ -119,8 +120,7 @@ class MainActivity : Activity() {
         val startButton = findViewById<Button>(R.id.startScanButton)
         val themeButton = findViewById<TextView>(R.id.themeButton)
         val regionSpinner = findViewById<Spinner>(R.id.regionSpinner)
-        val stage1ThresholdSeekBar = findViewById<SeekBar>(R.id.stage1ThresholdSeekBar)
-        val stage1ThresholdValue = findViewById<TextView>(R.id.stage1ThresholdValue)
+        val stage1ThresholdInput = findViewById<EditText>(R.id.stage1ThresholdInput)
         val rangesValue = findViewById<TextView>(R.id.rangesValue)
         val candidatesValue = findViewById<TextView>(R.id.candidatesValue)
         val tcpValue = findViewById<TextView>(R.id.tcpValue)
@@ -145,23 +145,7 @@ class MainActivity : Activity() {
                 .coerceIn(0, regionOptions.lastIndex)
         )
         val initialStage1Threshold = getStage1TcpThresholdMs()
-        stage1ThresholdSeekBar.progress = thresholdToProgress(initialStage1Threshold)
-        stage1ThresholdValue.text = "${initialStage1Threshold} ms"
-        stage1ThresholdSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                val threshold = progressToThreshold(progress)
-                stage1ThresholdValue.text = "${threshold} ms"
-                if (fromUser) {
-                    getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                        .edit()
-                        .putInt(KEY_STAGE1_TCP_THRESHOLD_MS, threshold)
-                        .apply()
-                }
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-        })
+        stage1ThresholdInput.setText(initialStage1Threshold.toString())
 
         regionSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
@@ -309,7 +293,15 @@ class MainActivity : Activity() {
         stopScanButton.visibility = View.VISIBLE
         stopScanButton.isEnabled = true
 
-        val stage1ThresholdMs = getStage1TcpThresholdMs()
+        val stage1ThresholdMs = stage1ThresholdInput.text.toString().trim().toIntOrNull()
+            ?.coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS)
+            ?: DEFAULT_STAGE1_TCP_THRESHOLD_MS.toInt()
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_STAGE1_TCP_THRESHOLD_MS, stage1ThresholdMs)
+            .apply()
+        stage1ThresholdInput.setText(stage1ThresholdMs.toString())
+
         executor.execute {
             try {
                 val scanStartMs = System.currentTimeMillis()
@@ -2255,16 +2247,6 @@ class MainActivity : Activity() {
     private fun getStage1TcpThresholdMs(): Int {
         return getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_STAGE1_TCP_THRESHOLD_MS, DEFAULT_STAGE1_TCP_THRESHOLD_MS.toInt())
-            .coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS)
-    }
-
-    private fun thresholdToProgress(thresholdMs: Int): Int {
-        return ((thresholdMs.coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS) -
-            STAGE1_TCP_THRESHOLD_MIN_MS) / 10)
-    }
-
-    private fun progressToThreshold(progress: Int): Int {
-        return (STAGE1_TCP_THRESHOLD_MIN_MS + progress.coerceIn(0, 45) * 10)
             .coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS)
     }
 
