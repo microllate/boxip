@@ -45,6 +45,11 @@ class MainActivity : Activity() {
         private const val KEY_REGION = "region"
         private const val KEY_RESULTS_SNAPSHOT = "snapshot"
         private const val KEY_HISTORY = "history"
+        private const val STAGE1_TCP_THRESHOLD_MS = 200L
+        private const val STAGE1_BATCH_SIZE = 300
+        private const val STAGE1_PING_TIMES = 4
+        private const val STAGE1_TCP_TIMEOUT_MS = 1000
+        private const val STAGE1_CONCURRENCY = 20
     private val retestingHistoryIps = mutableSetOf<String>()
     }
 
@@ -83,10 +88,6 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         activeInstance = this
-
-        // Start BoxIP's loopback-only DNS server for the MVP.
-        // It only listens on 127.0.0.1:1053 and does not affect system DNS.
-        BoxIpDnsServer.start(this)
 
         val rootLayout = findViewById<View>(R.id.rootLayout)
         rootLayout.setOnApplyWindowInsetsListener { view, insets ->
@@ -296,9 +297,6 @@ class MainActivity : Activity() {
                     var selectedIp: String? = null
                     var finalAvailableCount = 0
 
-                    val physicalInterface =
-                        connectivityManager.getLinkProperties(physicalNetwork)?.interfaceName
-
                     if (selectedRegion.pops.isEmpty()) {
                         val testedIps = linkedSetOf<String>()
                         var cycleIndex = 0
@@ -306,7 +304,7 @@ class MainActivity : Activity() {
                         while (true) {
                             cycleIndex++
 
-                            val batch = sampler.sampleRandomBatch(ranges.ipv4, 300)
+                            val batch = sampler.sampleRandomBatch(ranges.ipv4, STAGE1_BATCH_SIZE)
                                 .filterNot(testedIps::contains)
 
                             if (batch.isEmpty()) {
@@ -331,9 +329,9 @@ class MainActivity : Activity() {
 
                             val batchResults = CfstScanner(
                                 network = physicalNetwork,
-                                pingTimes = 4,
-                                timeoutMs = 1000,
-                                concurrency = 20
+                                pingTimes = STAGE1_PING_TIMES,
+                                timeoutMs = STAGE1_TCP_TIMEOUT_MS,
+                                concurrency = STAGE1_CONCURRENCY
                             ).scan(batch)
 
                             results += batchResults
@@ -341,7 +339,7 @@ class MainActivity : Activity() {
                             val tcpCandidates = batchResults
                                 .filter {
                                     it.received > 0 &&
-                                        (it.latencyMs ?: Long.MAX_VALUE) <= 200L
+                                        (it.latencyMs ?: Long.MAX_VALUE) <= STAGE1_TCP_THRESHOLD_MS
                                 }
                                 .distinctBy { it.ip }
 
@@ -370,8 +368,7 @@ class MainActivity : Activity() {
                             ).scan(
                                 ips = tcpCandidates.map { it.ip },
                                 host = "life.mozzarella.top",
-                                path = "",
-                                interfaceName = physicalInterface
+                                path = ""
                             ) { result ->
                                 appendScanLog(
                                     "VLESS ${result.ip} · " +
