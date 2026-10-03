@@ -1456,7 +1456,7 @@ class MainActivity : Activity() {
                         pop = finalResult.pop,
                         vlessLatencyMs = vlessResult.latencyMs ?: -1L,
                         stabilityPercent = finalResult.stabilityPercent,
-                        totalScore = 0.0,
+                        totalScore = ranked.totalScore,
                         testedAt = System.currentTimeMillis()
                     )
 
