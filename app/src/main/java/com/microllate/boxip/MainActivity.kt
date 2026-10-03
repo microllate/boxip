@@ -1498,6 +1498,7 @@ class MainActivity : Activity() {
         vlessResults: List<RestoredVlessResult> = emptyList()
     ) {
         val card = createSectionCard("restored_last_test_card")
+        resultTable.addView(card)
 
         card.addView(TextView(this).apply {
             text = "上次测试"
