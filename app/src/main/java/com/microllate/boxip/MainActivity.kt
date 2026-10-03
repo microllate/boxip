@@ -628,7 +628,7 @@ class MainActivity : Activity() {
             return
         }
 
-        val metricLabels = listOf("VLESS", "TCP", "TLS", "TTFB", "速度", "区域")
+        val metricLabels = listOf("VLESS", "TCP", "TLS", "TTFB", "速度", "区域", "稳定性", "评分")
 
         history.forEach { item ->
             val row = LinearLayout(this).apply {
@@ -778,7 +778,9 @@ class MainActivity : Activity() {
                 if (item.tlsMs >= 0) "${item.tlsMs}" else "-",
                 if (item.ttfbMs >= 0) "${item.ttfbMs}" else "-",
                 if (item.speed > 0.0) String.format(Locale.US, "%.1f MB/s", item.speed) else "-",
-                item.pop ?: "-"
+                item.pop ?: "-",
+                if (item.stabilityPercent > 0.0) String.format(Locale.US, "%.1f%%", item.stabilityPercent) else "-",
+                if (item.totalScore > 0.0) String.format(Locale.US, "%.1f", item.totalScore) else "-"
             )
             metricValues.forEach { value ->
                 metricsRow.addView(TextView(this).apply {
@@ -791,36 +793,6 @@ class MainActivity : Activity() {
                 }, LinearLayout.LayoutParams(0, dp(28), 1f))
             }
             row.addView(metricsRow)
-
-            val qualityRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            listOf(
-                "稳定性" to if (item.stabilityPercent > 0.0) {
-                    String.format(Locale.US, "%.1f%%", item.stabilityPercent)
-                } else {
-                    "-"
-                },
-                "评分" to if (item.totalScore > 0.0) {
-                    String.format(Locale.US, "%.1f", item.totalScore)
-                } else {
-                    "-"
-                }
-            ).forEach { (label, value) ->
-                qualityRow.addView(TextView(this).apply {
-                    text = "$label  $value"
-                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
-                    textSize = 10.5f
-                    includeFontPadding = false
-                    maxLines = 1
-                }, LinearLayout.LayoutParams(
-                    0,
-                    dp(24),
-                    1f
-                ))
-            }
-            row.addView(qualityRow)
 
             val divider = View(this).apply {
                 setBackgroundColor(getThemeColor(R.attr.boxDivider))
