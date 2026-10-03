@@ -25,6 +25,7 @@ class HistoryIpSwitchReceiver : BroadcastReceiver() {
         private const val KEY_HISTORY = "history"
         private const val KEY_SNAPSHOT = "snapshot"
         private const val KEY_SELECTED_IP = "selectedIp"
+        private val SWITCH_LOCK = Any()
     }
 
     override fun onReceive(context: Context, intent: Intent?) {
@@ -43,7 +44,7 @@ class HistoryIpSwitchReceiver : BroadcastReceiver() {
         }.start()
     }
 
-    private fun switchToNextHistoryIp(context: Context): String {
+    private fun switchToNextHistoryIp(context: Context): String = synchronized(SWITCH_LOCK) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val currentIp = prefs.getString(KEY_SELECTED_IP, null).orEmpty()
 
