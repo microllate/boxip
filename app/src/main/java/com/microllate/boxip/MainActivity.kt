@@ -250,7 +250,6 @@ class MainActivity : Activity() {
         )
         return true
     }
-    }
 
     private fun startScan(
         startButton: Button,
