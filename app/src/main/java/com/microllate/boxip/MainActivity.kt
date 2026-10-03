@@ -504,6 +504,7 @@ class MainActivity : Activity() {
                             realNodeCandidates,
                             realNodeResults,
                             finalQualityResults,
+                            vlessResults.count { it.success },
                             selectedIp,
                             vlessResults
                         )
@@ -813,6 +814,7 @@ class MainActivity : Activity() {
         realNodeCandidates: List<CfstDownloadResult>,
         realNodeResults: List<CfstDownloadResult>,
         qualityResults: List<CfstQualityResult>,
+        tlsWs: Int,
         selectedIp: String?,
         vlessResults: List<VlessWsResult>
     ) {
@@ -953,6 +955,7 @@ class MainActivity : Activity() {
             put("ranges", ranges)
             put("candidates", candidates)
             put("tcp", tcp)
+            put("tlsWs", tlsWs)
             put("downloads", downloads)
             put("history", JSONArray(historyJson))
             put("realNodeCandidates", JSONArray(realNodeCandidatesJson))
@@ -990,8 +993,8 @@ class MainActivity : Activity() {
             ?: prefs.getInt("ranges", 0)).toString()
         candidatesValue.text = (snapshot?.optInt("candidates", prefs.getInt("candidates", 0))
             ?: prefs.getInt("candidates", 0)).toString()
-        tcpValue.text = (snapshot?.optInt("tcp", prefs.getInt("tcp", 0))
-            ?: prefs.getInt("tcp", 0)).toString()
+        tcpValue.text = (snapshot?.optInt("tlsWs", prefs.getInt("tlsWs", 0))
+            ?: prefs.getInt("tlsWs", prefs.getInt("tcp", 0))).toString()
         downloadValue.text = (snapshot?.optInt("downloads", prefs.getInt("downloads", 0))
             ?: prefs.getInt("downloads", 0)).toString()
 
