@@ -56,8 +56,16 @@ class HistoryIpSwitchReceiver : BroadcastReceiver() {
             return "No historical IP available"
         }
 
-        val next = history.firstOrNull { it.ip != currentIp }
-            ?: return "No alternate historical IP available"
+        val currentIndex = history.indexOfFirst { it.ip == currentIp }
+        val next = if (currentIndex >= 0) {
+            history[(currentIndex + 1) % history.size]
+        } else {
+            history.first()
+        }
+
+        if (next.ip == currentIp) {
+            return "No alternate historical IP available"
+        }
 
         // Initialize the root hosts file even when the app process was not
         // already running.
