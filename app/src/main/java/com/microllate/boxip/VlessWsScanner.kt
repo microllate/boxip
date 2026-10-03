@@ -73,16 +73,48 @@ class VlessWsScanner(
     }
 
     private fun loadProfile(host: String): Profile? {
+        var process: Process? = null
+        var readerThread: Thread? = null
         return try {
-            val process = ProcessBuilder("su", "-c", "cat '/data/adb/box/sing-box/config.json'")
+            process = ProcessBuilder("su", "-c", "cat '/data/adb/box/sing-box/config.json'")
                 .redirectErrorStream(true)
                 .start()
-            val json = process.inputStream.bufferedReader().use { it.readText() }
-            process.waitFor(3, TimeUnit.SECONDS)
+
+            val output = StringBuilder()
+            readerThread = Thread {
+                runCatching {
+                    process!!.inputStream.bufferedReader().use { reader ->
+                        output.append(reader.readText())
+                    }
+                }
+            }.apply { start() }
+
+            if (!process.waitFor(3, TimeUnit.SECONDS)) {
+                process.destroy()
+                if (!process.waitFor(1, TimeUnit.SECONDS)) {
+                    process.destroyForcibly()
+                }
+                return null
+            }
+
+            readerThread.join(1_000)
+            if (readerThread.isAlive) return null
+
+            val json = output.toString()
             if (json.isBlank()) return null
             findVless(JSONObject(json), host)
         } catch (_: Exception) {
             null
+        } finally {
+            runCatching { process?.inputStream?.close() }
+            if (readerThread?.isAlive == true) {
+                readerThread.interrupt()
+                runCatching { readerThread.join(1_000) }
+            }
+            runCatching { process?.destroy() }
+            if (process?.isAlive == true) {
+                runCatching { process?.destroyForcibly() }
+            }
         }
     }
 
