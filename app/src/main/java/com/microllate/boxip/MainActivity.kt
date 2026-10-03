@@ -50,6 +50,7 @@ class MainActivity : Activity() {
         private const val STAGE1_PING_TIMES = 4
         private const val STAGE1_TCP_TIMEOUT_MS = 1000
         private const val STAGE1_CONCURRENCY = 20
+        private const val STAGE1_MIN_RECEIVED = 2
     private val retestingHistoryIps = mutableSetOf<String>()
     }
 
@@ -338,7 +339,7 @@ class MainActivity : Activity() {
 
                             val tcpCandidates = batchResults
                                 .filter {
-                                    it.received > 0 &&
+                                    it.received >= STAGE1_MIN_RECEIVED &&
                                         (it.latencyMs ?: Long.MAX_VALUE) <= STAGE1_TCP_THRESHOLD_MS
                                 }
                                 .distinctBy { it.ip }
