@@ -25,6 +25,9 @@ class HistoryIpSwitchReceiver : BroadcastReceiver() {
         private const val KEY_HISTORY = "history"
         private const val KEY_SNAPSHOT = "snapshot"
         private const val KEY_SELECTED_IP = "selectedIp"
+        private const val KEY_COMPLETED_ROUNDS = "completedHistoryRounds"
+        private const val KEY_HISTORY_SIGNATURE = "historySignature"
+        private const val MAX_HISTORY_ROUNDS = 3
         private val SWITCH_LOCK = Any()
     }
 
@@ -47,22 +50,56 @@ class HistoryIpSwitchReceiver : BroadcastReceiver() {
     private fun switchToNextHistoryIp(context: Context): String = synchronized(SWITCH_LOCK) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val currentIp = prefs.getString(KEY_SELECTED_IP, null).orEmpty()
+        val rawHistory = prefs.getString(KEY_HISTORY, null)
 
-        val history = parseHistory(
-            prefs.getString(KEY_HISTORY, null)
-        ).filter { isValidIpv4(it.ip) }
+        val history = parseHistory(rawHistory)
+            .filter { isValidIpv4(it.ip) }
             .sortedByDescending { it.testedAt }
 
         if (history.isEmpty()) {
             return "No historical IP available"
         }
 
+        val historySignature = rawHistory.orEmpty().hashCode().toString()
+        val storedSignature = prefs.getString(KEY_HISTORY_SIGNATURE, null)
+        var completedRounds = prefs.getInt(KEY_COMPLETED_ROUNDS, 0)
+
+        if (historySignature != storedSignature) {
+            completedRounds = 0
+        }
+
         val currentIndex = history.indexOfFirst { it.ip == currentIp }
+        val isRoundBoundary = history.size == 1 ||
+            (currentIndex >= 0 && currentIndex == history.lastIndex)
+
+        completedRounds = if (isRoundBoundary) {
+            completedRounds + 1
+        } else {
+            completedRounds
+        }
+
+        if (completedRounds >= MAX_HISTORY_ROUNDS) {
+            prefs.edit()
+                .putInt(KEY_COMPLETED_ROUNDS, 0)
+                .putString(KEY_HISTORY_SIGNATURE, historySignature)
+                .commit()
+
+            context.sendBroadcast(
+                Intent(StartScanReceiver.ACTION_START_SCAN).setPackage(context.packageName)
+            )
+            return "Historical IP pool failed for 3 complete rounds, started scan"
+        }
+
         val next = if (currentIndex >= 0) {
             history[(currentIndex + 1) % history.size]
         } else {
             history.first()
         }
+
+        prefs.edit()
+            .putInt(KEY_COMPLETED_ROUNDS, completedRounds)
+            .putString(KEY_HISTORY_SIGNATURE, historySignature)
+            .commit()
 
         if (next.ip == currentIp) {
             return "No alternate historical IP available"
