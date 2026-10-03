@@ -643,15 +643,15 @@ class MainActivity : Activity() {
                 tag = "retest_spinner:${item.ip}"
                 visibility = if (retestingHistoryIps.contains(item.ip)) View.VISIBLE else View.GONE
             }
-            top.addView(retestSpinner, LinearLayout.LayoutParams(dp(22), dp(22)).apply {
-                marginStart = dp(6)
-                marginEnd = dp(8)
+            top.addView(retestSpinner, LinearLayout.LayoutParams(dp(18), dp(18)).apply {
+                marginStart = dp(4)
+                marginEnd = dp(6)
             })
 
             val testButton = Button(this).apply {
                 tag = "retest_button:${item.ip}"
                 text = "重测"
-                textSize = 11f
+                textSize = 10f
                 minWidth = 0
                 minimumWidth = 0
                 minHeight = 0
@@ -662,13 +662,13 @@ class MainActivity : Activity() {
                 isEnabled = !retestingHistoryIps.contains(item.ip)
                 setOnClickListener { retestHistoryIp(item.ip, resultTable) }
             }
-            top.addView(testButton, LinearLayout.LayoutParams(dp(72), dp(28)).apply {
-                marginEnd = dp(8)
+            top.addView(testButton, LinearLayout.LayoutParams(dp(56), dp(24)).apply {
+                marginEnd = dp(5)
             })
 
             val deleteButton = Button(this).apply {
                 text = "删除"
-                textSize = 11f
+                textSize = 10f
                 minWidth = 0
                 minimumWidth = 0
                 minHeight = 0
@@ -678,7 +678,7 @@ class MainActivity : Activity() {
                 setTextColor(getThemeColor(R.attr.boxOnAccent))
                 setOnClickListener { deleteHistoryIp(item.ip, resultTable) }
             }
-            top.addView(deleteButton, LinearLayout.LayoutParams(dp(72), dp(28)))
+            top.addView(deleteButton, LinearLayout.LayoutParams(dp(56), dp(24)))
 
             row.addView(top)
 
