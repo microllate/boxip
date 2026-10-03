@@ -1221,6 +1221,12 @@ class MainActivity : Activity() {
             }
         }
         resultTable.addView(card)
+        resultTable.addView(Space(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(24)
+            )
+        })
 
         card.addView(TextView(this).apply {
             text = "上次测试"
