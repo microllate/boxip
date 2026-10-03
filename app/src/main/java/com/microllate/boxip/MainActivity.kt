@@ -973,7 +973,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, dp(8), 0, dp(8))
+                setMargins(0, dp(12), 0, dp(12))
             }
         }
     }
@@ -2263,9 +2263,8 @@ class MainActivity : Activity() {
 
         widths[0] = maxIpWidth + dp(14 + 2 + 6 + 4)
 
-        // Result table uses 8dp horizontal ScrollView padding plus the root
-        // side margins. Give every non-IP column the same share.
-        val available = resources.displayMetrics.widthPixels - dp(56)
+        // Result table fills the root content width. Give every non-IP column the same share.
+        val available = resources.displayMetrics.widthPixels - dp(40)
         val remaining = maxOf(0, available - widths[0])
         val each = remaining / 5
         var remainder = remaining % 5
