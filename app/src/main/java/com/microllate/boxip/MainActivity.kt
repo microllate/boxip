@@ -959,6 +959,25 @@ class MainActivity : Activity() {
         val downloadResult: CfstDownloadResult?
     )
 
+    private fun createSectionCard(tag: String? = null): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            if (tag != null) this.tag = tag
+            background = GradientDrawable().apply {
+                setColor(getThemeColor(R.attr.boxSurface))
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), getThemeColor(R.attr.boxDivider))
+            }
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dp(8), 0, dp(8))
+            }
+        }
+    }
+
     private fun renderHistorySection(
         resultTable: LinearLayout,
         selectedIp: String?,
@@ -969,15 +988,15 @@ class MainActivity : Activity() {
         if (clearFirst) {
             resultTable.removeAllViews()
         } else {
-            val existingTitle = resultTable.findViewWithTag<TextView>("history_section_title")
-            if (existingTitle != null) {
-                val index = resultTable.indexOfChild(existingTitle)
-                if (index >= 0) {
-                    resultTable.removeViews(index, resultTable.childCount - index)
-                }
+            val existingCard = resultTable.findViewWithTag<LinearLayout>("history_section_card")
+            if (existingCard != null) {
+                resultTable.removeView(existingCard)
             }
         }
         resultTable.visibility = View.VISIBLE
+
+        val card = createSectionCard("history_section_card")
+        resultTable.addView(card)
 
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
         // History order is independent of the currently selected IP:
@@ -985,27 +1004,8 @@ class MainActivity : Activity() {
         val history = parseHistory(prefs.getString(KEY_HISTORY, null))
             .sortedByDescending { it.testedAt }
 
-        // Visually separate historical nodes from the current scan section.
-        resultTable.addView(View(this).apply {
-            setBackgroundColor(getThemeColor(R.attr.boxDivider))
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(1)
-        ).apply {
-            setMargins(dp(4), dp(16), dp(4), dp(8))
-        })
-
-        resultTable.addView(TextView(this).apply {
-            tag = "history_section_title"
-            text = "历史记录"
-            setTextColor(getThemeColor(R.attr.boxTextPrimary))
-            textSize = 15f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(4), dp(4), dp(4), dp(10))
-        })
-
         if (history.isEmpty()) {
-            resultTable.addView(TextView(this).apply {
+            card.addView(TextView(this).apply {
                 text = "暂无通过真实 VLESS + WS 验证的节点"
                 setTextColor(getThemeColor(R.attr.boxTextSecondary))
                 textSize = 12f
@@ -1188,7 +1188,7 @@ class MainActivity : Activity() {
                 setBackgroundColor(getThemeColor(R.attr.boxDivider))
             }
             row.addView(divider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)))
-            resultTable.addView(row)
+            card.addView(row)
         }
 
         scrollView?.post { scrollView.scrollTo(0, savedScrollY) }
@@ -1202,14 +1202,16 @@ class MainActivity : Activity() {
         selectedIp: String?,
         vlessResults: List<VlessWsResult>
     ) {
-        val section = TextView(this).apply {
+        val card = createSectionCard()
+        resultTable.addView(card)
+
+        card.addView(TextView(this).apply {
             text = "上次测试"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(4), dp(18), dp(4), dp(10))
-        }
-        resultTable.addView(section)
+            setPadding(0, 0, 0, dp(10))
+        })
 
         val realNodeByIp = realNodeResults.associateBy { it.ip }
         val vlessByIp = vlessResults.associateBy { it.ip }
@@ -1244,7 +1246,7 @@ class MainActivity : Activity() {
             )
         }
         val realNodeWidths = contentColumnWidths(realNodeRows)
-        resultTable.addView(
+        card.addView(
             createResultRow(
                 "IP", "TCP", "TLS", "TTFB", "速度", "区域",
                 header = true,
@@ -1255,7 +1257,7 @@ class MainActivity : Activity() {
 
         sortedRealNodeCandidates.forEach { result ->
             val verified = realNodeByIp[result.ip]
-            resultTable.addView(
+            card.addView(
                 createResultRow(
                     result.ip,
                     verified?.let { "${it.tcpConnectMs}" } ?: "失败",
