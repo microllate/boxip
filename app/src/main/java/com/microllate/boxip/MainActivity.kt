@@ -323,12 +323,23 @@ class MainActivity : Activity() {
                 fun stopIfRequested(): Boolean {
                     if (!scanStopRequested) return false
                     runOnUiThread {
-                        statusText.text = "测速已手动停止"
-                        resultText.text = "本次测速已停止"
                         startButton.isEnabled = true
                         themeButton.isEnabled = true
                         regionSpinner.isEnabled = true
                         stopScanButton.visibility = View.GONE
+                        stageProgress.visibility = View.GONE
+                        stageProgress.progress = 0
+                        resultTable.removeAllViews()
+                        resultTable.visibility = View.VISIBLE
+                        restoreLastResults(
+                            statusText,
+                            resultText,
+                            resultTable,
+                            rangesValue,
+                            candidatesValue,
+                            tcpValue,
+                            downloadValue
+                        )
                     }
                     return true
                 }
