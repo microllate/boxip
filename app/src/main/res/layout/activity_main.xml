@@ -195,8 +195,8 @@
         android:fillViewport="true"
         android:paddingTop="14dp"
         android:paddingBottom="14dp"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp">
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp">
         <LinearLayout android:id="@+id/resultContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
             <TextView android:id="@+id/resultText" android:layout_width="match_parent" android:layout_height="wrap_content" android:includeFontPadding="false" android:lineSpacingExtra="6dp" android:textColor="?attr/boxTextSecondary" android:textSize="12sp" android:text="等待测速…" />
             <ProgressBar
