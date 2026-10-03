@@ -1497,14 +1497,15 @@ class MainActivity : Activity() {
         selectedIp: String? = null,
         vlessResults: List<RestoredVlessResult> = emptyList()
     ) {
-        val section = TextView(this).apply {
+        val card = createSectionCard("restored_last_test_card")
+
+        card.addView(TextView(this).apply {
             text = "上次测试"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(4), dp(18), dp(4), dp(10))
-        }
-        resultTable.addView(section)
+            setPadding(0, 0, 0, dp(10))
+        })
 
         val resultByIp = results.associateBy { it.ip }
         val vlessByIp = vlessResults.associateBy { it.ip }
@@ -1537,7 +1538,7 @@ class MainActivity : Activity() {
         }
 
         val widths = contentColumnWidths(rows)
-        resultTable.addView(
+        card.addView(
             createResultRow(
                 "IP", "TCP", "TLS", "TTFB", "速度", "区域",
                 header = true,
@@ -1548,7 +1549,7 @@ class MainActivity : Activity() {
 
         sortedCandidates.forEach { candidate ->
             val verified = resultByIp[candidate.ip]
-            resultTable.addView(
+            card.addView(
                 createResultRow(
                     candidate.ip,
                     verified?.let { "${it.tcpMs} ms" } ?: "失败",
