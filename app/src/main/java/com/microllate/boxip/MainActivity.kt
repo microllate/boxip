@@ -617,7 +617,7 @@ class MainActivity : Activity() {
                         }
 
                         val currentQualityResults = CfstQualityScorer()
-                            .rank(currentDownloadResults.filter { it.minTcpConnectMs <= 200L })
+                            .rank(currentDownloadResults)
 
                         finalQualityResults = currentQualityResults
 
