@@ -1,6 +1,5 @@
 package com.microllate.boxip
 
-import android.content.Context
 import android.util.Log
 
 /**
@@ -19,31 +18,13 @@ object BoxIpDnsServer {
     @Volatile
     private var currentIp = ""
 
-    @Volatile
-    private var started = false
-
-    @Synchronized
-    fun start(context: Context) {
-        if (started) return
-        started = true
-
-        try {
-            ensureRootDirectory()
-            publish()
-            Log.i(TAG, "sing-box hosts file ready: " + FILE_PATH)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize root hosts file", e)
-        }
-    }
-
     fun setCurrentIp(ip: String) {
         if (!isValidIpv4(ip)) return
 
         currentIp = ip
 
-        if (!started) return
-
         try {
+            ensureRootDirectory()
             publish()
             Log.d(TAG, "Current IP published to hosts: " + ip)
         } catch (e: Exception) {
@@ -52,11 +33,6 @@ object BoxIpDnsServer {
     }
 
     fun getCurrentIp(): String = currentIp
-
-    @Synchronized
-    fun stop() {
-        started = false
-    }
 
     private fun ensureRootDirectory() {
         runAsRoot(
