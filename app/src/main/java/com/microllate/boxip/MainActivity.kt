@@ -995,7 +995,14 @@ class MainActivity : Activity() {
         }
         resultTable.visibility = View.VISIBLE
 
-        val card = createSectionCard("history_section_card")
+        val card = createSectionCard("history_section_card").apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(24)
+            }
+        }
         resultTable.addView(card)
 
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
