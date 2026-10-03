@@ -920,6 +920,7 @@ class MainActivity : Activity() {
         results: List<DownloadDisplayResult>,
         realNodeCandidates: List<CfstDownloadResult>,
         realNodeResults: List<CfstDownloadResult>,
+        qualityResults: List<CfstQualityResult>,
         selectedIp: String?,
         vlessResults: List<VlessWsResult>
     ) {
