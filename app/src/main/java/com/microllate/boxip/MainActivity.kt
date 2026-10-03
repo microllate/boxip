@@ -575,7 +575,17 @@ class MainActivity : Activity() {
     ) {
         val scrollView = (resultTable.parent?.parent as? android.widget.ScrollView)
         val savedScrollY = scrollView?.scrollY ?: 0
-        if (clearFirst) resultTable.removeAllViews()
+        if (clearFirst) {
+            resultTable.removeAllViews()
+        } else {
+            val existingTitle = resultTable.findViewWithTag<TextView>("history_section_title")
+            if (existingTitle != null) {
+                val index = resultTable.indexOfChild(existingTitle)
+                if (index >= 0) {
+                    resultTable.removeViews(index, resultTable.childCount - index)
+                }
+            }
+        }
         resultTable.visibility = View.VISIBLE
 
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
@@ -587,6 +597,7 @@ class MainActivity : Activity() {
             )
 
         resultTable.addView(TextView(this).apply {
+            tag = "history_section_title"
             text = "历史可用节点"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 13f
@@ -1389,7 +1400,9 @@ class MainActivity : Activity() {
                 }
 
                 setHistoryRetestState(resultTable, ip, false)
-                renderHistorySection(resultTable, getPersistedSelectedIp(), clearFirst = true)
+                // Refresh only the history section. Keep the current scan result,
+                // including "真实节点域名验证 · life.mozzarella.top", intact.
+                renderHistorySection(resultTable, getPersistedSelectedIp(), clearFirst = false)
             }
         }
     }
