@@ -31,7 +31,8 @@ class MainActivity : Activity() {
         private var activeInstance: MainActivity? = null
 
         fun notifyExternalSelectionChanged(ip: String) {
-            activeInstance?.runOnUiThread { activity ->
+            val activity = activeInstance ?: return
+            activity.runOnUiThread {
                 activity.applyExternalSelection(ip)
             }
         }
