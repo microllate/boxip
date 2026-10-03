@@ -211,6 +211,19 @@ class MainActivity : Activity() {
                         }
                     }
 
+                    fun stopIfRequested(): Boolean {
+                        if (!scanStopRequested) return false
+                        runOnUiThread {
+                            statusText.text = "测速已手动停止"
+                            resultText.text = "本次测速已停止"
+                            startButton.isEnabled = true
+                            themeButton.isEnabled = true
+                            regionSpinner.isEnabled = true
+                            stopScanButton.visibility = View.GONE
+                        }
+                        return true
+                    }
+
                     appendScanLog("开始测速")
                     val selectedRegion = regionOptions[
                 getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -336,6 +349,8 @@ class MainActivity : Activity() {
                                 "第一阶段完成 · 本批 TCP ≤ 200 ms：${tcpCandidates.size} 个"
                             )
 
+                            if (stopIfRequested()) return@execute
+
                             if (tcpCandidates.isEmpty()) {
                                 appendScanLog("第一阶段结果为空 · 重新随机 300 个 IP")
                                 continue
@@ -377,6 +392,8 @@ class MainActivity : Activity() {
                                 "第二阶段完成 · VLESS + WS 成功 ${verifiedCandidates.size} / ${tcpCandidates.size}"
                             )
 
+                            if (stopIfRequested()) return@execute
+
                             if (verifiedCandidates.isEmpty()) {
                                 appendScanLog("第二阶段结果为空 · 回到第一阶段重新随机 300 个 IP")
                                 continue
@@ -416,6 +433,8 @@ class MainActivity : Activity() {
                             appendScanLog(
                                 "第三阶段完成 · 最终质量结果 ${currentQualityResults.size} 个"
                             )
+
+                            if (stopIfRequested()) return@execute
 
                             if (currentQualityResults.isEmpty()) {
                                 appendScanLog("第三阶段结果为空 · 回到第一阶段重新开始")
@@ -503,17 +522,7 @@ class MainActivity : Activity() {
 
                     }
 
-                    if (scanStopRequested) {
-                        runOnUiThread {
-                            statusText.text = "测速已手动停止"
-                            resultText.text = "本次测速已停止"
-                            startButton.isEnabled = true
-                            themeButton.isEnabled = true
-                            regionSpinner.isEnabled = true
-                            stopScanButton.visibility = View.GONE
-                        }
-                        return@execute
-                    }
+                    if (stopIfRequested()) return@execute
 
                     if (selectedIp != null) {
                         BoxIpDnsServer.setCurrentIp(selectedIp)
