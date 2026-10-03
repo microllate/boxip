@@ -469,7 +469,7 @@ class MainActivity : Activity() {
                             }.sortedWith(
                                 compareBy<DownloadDisplayResult> { it.downloadResult == null }
                                     .thenByDescending {
-                                        it.downloadResult?.let { qualityByIp[it.ip]?.totalScore } ?: -1.0
+                                        it.downloadResult?.let { qualityByIp[it.scanResult.ip]?.totalScore } ?: -1.0
                                     }
                                     .thenBy { it.downloadResult?.ttfbMs ?: Long.MAX_VALUE }
                                     .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
@@ -673,7 +673,6 @@ class MainActivity : Activity() {
 
                         val qualityByIp = currentQualityResults.associateBy { it.result.ip }
 
-                        downloadCandidates = currentQualityResults.map { it.result }
                         downloadResults = currentDownloadResults
                         regionResults = currentDownloadResults.filter {
                             it.pop in selectedRegion.pops
@@ -730,8 +729,8 @@ class MainActivity : Activity() {
 
                     if (stopIfRequested()) return@execute
 
-                    if (selectedIp != null) {
-                        BoxIpDnsServer.setCurrentIp(selectedIp)
+                    selectedIp?.let { ip ->
+                        BoxIpDnsServer.setCurrentIp(ip)
                     }
 
                     runOnUiThread {
