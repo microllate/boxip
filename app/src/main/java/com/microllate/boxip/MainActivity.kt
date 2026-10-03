@@ -1217,7 +1217,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, dp(8), 0, dp(8))
+                setMargins(0, dp(0), 0, dp(0))
             }
         }
         resultTable.addView(card)
@@ -2264,7 +2264,7 @@ class MainActivity : Activity() {
         widths[0] = maxIpWidth + dp(14 + 2 + 6 + 4)
 
         // Result table fills the root content width. Give every non-IP column the same share.
-        val available = resources.displayMetrics.widthPixels - dp(40)
+        val available = resources.displayMetrics.widthPixels - dp(64)
         val remaining = maxOf(0, available - widths[0])
         val each = remaining / 5
         var remainder = remaining % 5
