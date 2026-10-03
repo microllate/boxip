@@ -19,6 +19,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <receiver
+            android:name=".HistoryIpSwitchReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.microllate.boxip.action.SWITCH_HISTORY_IP" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
