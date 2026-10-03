@@ -853,8 +853,6 @@ class MainActivity : Activity() {
         }
     }
 
-    }
-
     private data class DownloadDisplayResult(
         val scanResult: CfstScanResult,
         val downloadResult: CfstDownloadResult?
