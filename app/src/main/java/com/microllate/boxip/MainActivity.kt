@@ -468,8 +468,10 @@ class MainActivity : Activity() {
                                 )
                             }.sortedWith(
                                 compareBy<DownloadDisplayResult> { it.downloadResult == null }
-                                    .thenByDescending {
-                                        it.downloadResult?.let { qualityByIp[it.scanResult.ip]?.totalScore } ?: -1.0
+                                    .thenByDescending { display ->
+                                        display.downloadResult?.let {
+                                            qualityByIp[display.scanResult.ip]?.totalScore
+                                        } ?: -1.0
                                     }
                                     .thenBy { it.downloadResult?.ttfbMs ?: Long.MAX_VALUE }
                                     .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
@@ -696,7 +698,7 @@ class MainActivity : Activity() {
                         }.filter { it.downloadResult != null }
                             .sortedWith(
                                 compareByDescending<DownloadDisplayResult> {
-                                    qualityByIp[it.ip]?.totalScore ?: -1.0
+                                    qualityByIp[it.scanResult.ip]?.totalScore ?: -1.0
                                 }
                                     .thenBy {
                                         it.downloadResult?.ttfbMs ?: Long.MAX_VALUE
