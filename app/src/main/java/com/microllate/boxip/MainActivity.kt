@@ -589,12 +589,10 @@ class MainActivity : Activity() {
         resultTable.visibility = View.VISIBLE
 
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
+        // History order is independent of the currently selected IP:
+        // newest test first.
         val history = parseHistory(prefs.getString(KEY_HISTORY, null))
-            .sortedWith(
-                compareBy<HistoryResult> { it.ip != selectedIp }
-                    .thenBy { it.vlessLatencyMs.takeIf { value -> value >= 0L } ?: Long.MAX_VALUE }
-                    .thenByDescending { it.testedAt }
-            )
+            .sortedByDescending { it.testedAt }
 
         // Visually separate historical nodes from the current scan section.
         resultTable.addView(View(this).apply {
