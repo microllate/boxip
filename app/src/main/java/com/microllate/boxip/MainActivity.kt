@@ -243,6 +243,7 @@ class MainActivity : Activity() {
                     var displayedResults: List<DownloadDisplayResult> = emptyList()
                     var realNodeCandidates: List<CfstDownloadResult> = emptyList()
                     var realNodeResults: List<CfstDownloadResult> = emptyList()
+                    var finalQualityResults: List<CfstQualityResult> = emptyList()
                     var selectedIp: String? = null
                     var finalAvailableCount = 0
 
@@ -374,6 +375,8 @@ class MainActivity : Activity() {
                             val currentQualityResults = CfstQualityScorer()
                                 .rank(currentDownloadResults.filter { it.minTcpConnectMs <= 200L })
 
+                            finalQualityResults = currentQualityResults
+
                             appendScanLog(
                                 "第三阶段完成 · 最终质量结果 ${currentQualityResults.size} 个"
                             )
@@ -500,7 +503,7 @@ class MainActivity : Activity() {
                             displayedResults,
                             realNodeCandidates,
                             realNodeResults,
-                            currentQualityResults,
+                            finalQualityResults,
                             selectedIp,
                             vlessResults
                         )
