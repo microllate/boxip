@@ -18,6 +18,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Spinner
@@ -50,7 +51,10 @@ class MainActivity : Activity() {
         private const val KEY_REGION = "region"
         private const val KEY_RESULTS_SNAPSHOT = "snapshot"
         private const val KEY_HISTORY = "history"
-        private const val STAGE1_TCP_THRESHOLD_MS = 200L
+        private const val KEY_STAGE1_TCP_THRESHOLD_MS = "stage1TcpThresholdMs"
+        private const val DEFAULT_STAGE1_TCP_THRESHOLD_MS = 200L
+        private const val STAGE1_TCP_THRESHOLD_MIN_MS = 50
+        private const val STAGE1_TCP_THRESHOLD_MAX_MS = 500
         private const val STAGE1_BATCH_SIZE = 300
         private const val STAGE1_PING_TIMES = 4
         private const val STAGE1_TCP_TIMEOUT_MS = 1000
@@ -115,6 +119,8 @@ class MainActivity : Activity() {
         val startButton = findViewById<Button>(R.id.startScanButton)
         val themeButton = findViewById<TextView>(R.id.themeButton)
         val regionSpinner = findViewById<Spinner>(R.id.regionSpinner)
+        val stage1ThresholdSeekBar = findViewById<SeekBar>(R.id.stage1ThresholdSeekBar)
+        val stage1ThresholdValue = findViewById<TextView>(R.id.stage1ThresholdValue)
         val rangesValue = findViewById<TextView>(R.id.rangesValue)
         val candidatesValue = findViewById<TextView>(R.id.candidatesValue)
         val tcpValue = findViewById<TextView>(R.id.tcpValue)
@@ -138,6 +144,25 @@ class MainActivity : Activity() {
                 .getInt(KEY_REGION, 0)
                 .coerceIn(0, regionOptions.lastIndex)
         )
+        val initialStage1Threshold = getStage1TcpThresholdMs()
+        stage1ThresholdSeekBar.progress = thresholdToProgress(initialStage1Threshold)
+        stage1ThresholdValue.text = "${initialStage1Threshold} ms"
+        stage1ThresholdSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val threshold = progressToThreshold(progress)
+                stage1ThresholdValue.text = "${threshold} ms"
+                if (fromUser) {
+                    getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .putInt(KEY_STAGE1_TCP_THRESHOLD_MS, threshold)
+                        .apply()
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
         regionSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
                 parent: android.widget.AdapterView<*>?,
@@ -284,6 +309,7 @@ class MainActivity : Activity() {
         stopScanButton.visibility = View.VISIBLE
         stopScanButton.isEnabled = true
 
+        val stage1ThresholdMs = getStage1TcpThresholdMs()
         executor.execute {
             try {
                 val scanStartMs = System.currentTimeMillis()
@@ -405,12 +431,12 @@ class MainActivity : Activity() {
                         runOnUiThread {
                             rangesValue.text = ranges.ipv4.size.toString()
                             candidatesValue.text = testedIps.size.toString()
-                            statusText.text = "第一阶段 · TCP ≤ 200 ms 筛选"
-                            resultText.text = "随机测试 300 个 IP，寻找 TCP ≤ 200 ms 的入口…"
+                            statusText.text = "第一阶段 · TCP ≤ ${stage1ThresholdMs} ms 筛选"
+                            resultText.text = "随机测试 300 个 IP，寻找 TCP ≤ ${stage1ThresholdMs} ms 的入口…"
                         }
 
                         appendScanLog(
-                            "第 ${cycleIndex} 轮 · 第一阶段开始 · 随机 300 IP · TCP ≤ 200 ms"
+                            "第 ${cycleIndex} 轮 · 第一阶段开始 · 随机 300 IP · TCP ≤ ${stage1ThresholdMs} ms"
                         )
 
                         val batchResults = CfstScanner(
@@ -425,12 +451,12 @@ class MainActivity : Activity() {
                         val tcpCandidates = batchResults
                             .filter {
                                 it.received > 0 &&
-                                    (it.latencyMs ?: Long.MAX_VALUE) <= STAGE1_TCP_THRESHOLD_MS
+                                    (it.latencyMs ?: Long.MAX_VALUE) <= stage1ThresholdMs
                             }
                             .distinctBy { it.ip }
 
                         appendScanLog(
-                            "第一阶段完成 · 本批 TCP ≤ 200 ms：${tcpCandidates.size} 个"
+                            "第一阶段完成 · 本批 TCP ≤ ${stage1ThresholdMs} ms：${tcpCandidates.size} 个"
                         )
 
                         if (stopIfRequested()) return@execute
@@ -2224,6 +2250,22 @@ class MainActivity : Activity() {
         } else {
             typedValue.data
         }
+    }
+
+    private fun getStage1TcpThresholdMs(): Int {
+        return getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_STAGE1_TCP_THRESHOLD_MS, DEFAULT_STAGE1_TCP_THRESHOLD_MS.toInt())
+            .coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS)
+    }
+
+    private fun thresholdToProgress(thresholdMs: Int): Int {
+        return ((thresholdMs.coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS) -
+            STAGE1_TCP_THRESHOLD_MIN_MS) / 10)
+    }
+
+    private fun progressToThreshold(progress: Int): Int {
+        return (STAGE1_TCP_THRESHOLD_MIN_MS + progress.coerceIn(0, 45) * 10)
+            .coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS)
     }
 
     private fun dp(value: Int): Int {
