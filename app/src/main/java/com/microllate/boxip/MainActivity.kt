@@ -100,6 +100,7 @@ class MainActivity : Activity() {
         activeInstance = this
 
         val rootLayout = findViewById<View>(R.id.rootLayout)
+        rootLayout.requestFocus()
         rootLayout.setOnApplyWindowInsetsListener { view, insets ->
             // Keep the app content below the status bar and above the navigation bar.
             // The 12dp base spacing preserves the intended visual margin.
@@ -146,6 +147,16 @@ class MainActivity : Activity() {
         )
         val initialStage1Threshold = getStage1TcpThresholdMs()
         stage1ThresholdInput.setText(initialStage1Threshold.toString())
+        stage1ThresholdInput.setOnEditorActionListener { view, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.hideSoftInputFromWindow(view.windowToken, 0)
+                view.clearFocus()
+                true
+            } else {
+                false
+            }
+        }
 
         regionSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
