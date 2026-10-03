@@ -1439,23 +1439,23 @@ class MainActivity : Activity() {
                 val ranked = CfstQualityScorer().rank(listOf(qualityResult)).firstOrNull()
                     ?: return@runCatching null
 
-                Triple(tcpResult, vlessResult, ranked.result)
+                Triple(tcpResult, vlessResult, ranked)
             }.getOrNull()
 
             runOnUiThread {
                 retestingHistoryIps.remove(ip)
 
                 if (outcome != null) {
-                    val (tcpResult, vlessResult, finalResult) = outcome
+                    val (tcpResult, vlessResult, ranked) = outcome
                     val updated = HistoryResult(
                         ip = ip,
-                        tcpMs = finalResult.tcpConnectMs,
-                        tlsMs = finalResult.tlsHandshakeMs,
-                        ttfbMs = finalResult.ttfbMs,
-                        speed = finalResult.downloadSpeedMbps,
-                        pop = finalResult.pop,
+                        tcpMs = ranked.result.tcpConnectMs,
+                        tlsMs = ranked.result.tlsHandshakeMs,
+                        ttfbMs = ranked.result.ttfbMs,
+                        speed = ranked.result.downloadSpeedMbps,
+                        pop = ranked.result.pop,
                         vlessLatencyMs = vlessResult.latencyMs ?: -1L,
-                        stabilityPercent = finalResult.stabilityPercent,
+                        stabilityPercent = ranked.result.stabilityPercent,
                         totalScore = ranked.totalScore,
                         testedAt = System.currentTimeMillis()
                     )
