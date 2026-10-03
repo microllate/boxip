@@ -1063,10 +1063,11 @@ class MainActivity : Activity() {
         vlessResults: List<RestoredVlessResult> = emptyList()
     ) {
         val section = TextView(this).apply {
-            text = "真实节点域名验证 · life.mozzarella.top"
+            text = "上次测试"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
-            textSize = 13f
-            setPadding(dp(4), dp(18), dp(4), dp(8))
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(4), dp(18), dp(4), dp(10))
         }
         resultTable.addView(section)
 
