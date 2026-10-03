@@ -63,6 +63,7 @@ class MainActivity : Activity() {
     )
 
     private val executor = Executors.newSingleThreadExecutor()
+    private val historyExecutor = Executors.newCachedThreadPool()
     @Volatile private var scanStopRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1306,7 +1307,7 @@ class MainActivity : Activity() {
             .getLinkProperties(physicalNetwork)
             ?.interfaceName
 
-        executor.execute {
+        historyExecutor.execute {
             val outcome = runCatching {
                 val tcpResult = CfstScanner(
                     network = physicalNetwork,
@@ -1817,6 +1818,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         executor.shutdownNow()
+        historyExecutor.shutdownNow()
         super.onDestroy()
     }
 }
