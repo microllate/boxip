@@ -37,6 +37,11 @@ class MainActivity : Activity() {
             }
         }
 
+        fun startScanExternally(): Boolean {
+            val activity = activeInstance ?: return false
+            return activity.runOnUiThreadAndStartScan()
+        }
+
         private const val PREFS = "boxip_ui"
         private const val KEY_THEME = "theme"
         private const val THEME_SYSTEM = 0
@@ -196,6 +201,55 @@ class MainActivity : Activity() {
                 connectivityManager
             )
         }
+
+        if (intent?.action == StartScanReceiver.ACTION_START_SCAN) {
+            startScan(
+                startButton,
+                themeButton,
+                regionSpinner,
+                statusText,
+                resultText,
+                resultTable,
+                rangesValue,
+                candidatesValue,
+                tcpValue,
+                downloadValue,
+                stageProgress,
+                stopScanButton,
+                connectivityManager
+            )
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent?.action == StartScanReceiver.ACTION_START_SCAN) {
+            runOnUiThreadAndStartScan()
+        }
+    }
+
+    private fun runOnUiThreadAndStartScan(): Boolean {
+        val startButton = findViewById<Button>(R.id.startScanButton)
+        if (!startButton.isEnabled) return false
+
+        startScan(
+            startButton,
+            findViewById<TextView>(R.id.themeButton),
+            findViewById<Spinner>(R.id.regionSpinner),
+            findViewById<TextView>(R.id.statusText),
+            findViewById<TextView>(R.id.resultText),
+            findViewById<LinearLayout>(R.id.resultTable),
+            findViewById<TextView>(R.id.rangesValue),
+            findViewById<TextView>(R.id.candidatesValue),
+            findViewById<TextView>(R.id.tcpValue),
+            findViewById<TextView>(R.id.downloadValue),
+            findViewById<ProgressBar>(R.id.stageProgress),
+            findViewById<Button>(R.id.stopScanButton),
+            getSystemService(ConnectivityManager::class.java)
+        )
+        return true
+    }
     }
 
     private fun startScan(
