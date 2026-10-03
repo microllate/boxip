@@ -674,10 +674,10 @@ class MainActivity : Activity() {
                 includeFontPadding = false
                 maxLines = 1
                 gravity = Gravity.CENTER_VERTICAL or Gravity.END
-                setPadding(dp(4), 0, dp(4), 0)
+                setPadding(dp(2), 0, 0, 0)
             }
             top.addView(timeText, LinearLayout.LayoutParams(
-                dp(82),
+                dp(70),
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ))
 
