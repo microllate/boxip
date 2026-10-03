@@ -1,5 +1,6 @@
 package com.microllate.boxip
 
+import android.net.Network
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
@@ -23,6 +24,7 @@ import java.security.cert.X509Certificate
  * It does not start sing-box and does not send a VLESS request yet.
  */
 class NativeVlessWsClient(
+    private val network: Network,
     private val timeoutMs: Int = 8_000
 ) {
     data class Result(
@@ -44,6 +46,7 @@ class NativeVlessWsClient(
 
         return try {
             val tcp = Socket()
+            network.bindSocket(tcp)
             tcp.connect(InetSocketAddress(ip, port), timeoutMs)
             tcp.soTimeout = timeoutMs
 
