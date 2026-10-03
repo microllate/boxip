@@ -747,14 +747,17 @@ class MainActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            metricLabels.forEach { label ->
+            val metricWeights = floatArrayOf(1.20f, 0.78f, 0.78f, 0.82f, 1.15f, 0.72f, 1.00f, 0.72f)
+            metricLabels.forEachIndexed { index, label ->
                 metricsHeader.addView(TextView(this).apply {
                     text = label
                     setTextColor(getThemeColor(R.attr.boxTextPrimary))
                     textSize = 10.5f
                     includeFontPadding = false
                     maxLines = 1
-                }, LinearLayout.LayoutParams(0, dp(22), 1f))
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    setPadding(0, 0, dp(2), 0)
+                }, LinearLayout.LayoutParams(0, dp(22), metricWeights[index]))
             }
             row.addView(
                 metricsHeader,
@@ -782,7 +785,7 @@ class MainActivity : Activity() {
                 if (item.stabilityPercent > 0.0) String.format(Locale.US, "%.1f%%", item.stabilityPercent) else "-",
                 if (item.totalScore > 0.0) String.format(Locale.US, "%.1f", item.totalScore) else "-"
             )
-            metricValues.forEach { value ->
+            metricValues.forEachIndexed { index, value ->
                 metricsRow.addView(TextView(this).apply {
                     text = value
                     setTextColor(getThemeColor(R.attr.boxTextSecondary))
@@ -790,7 +793,8 @@ class MainActivity : Activity() {
                     includeFontPadding = false
                     maxLines = 1
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                }, LinearLayout.LayoutParams(0, dp(28), 1f))
+                    setPadding(0, 0, dp(2), 0)
+                }, LinearLayout.LayoutParams(0, dp(28), metricWeights[index]))
             }
             row.addView(metricsRow)
 
