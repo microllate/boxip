@@ -608,7 +608,7 @@ class MainActivity : Activity() {
 
         resultTable.addView(TextView(this).apply {
             tag = "history_section_title"
-            text = "历史可用节点"
+            text = "历史记录"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -652,15 +652,36 @@ class MainActivity : Activity() {
                 marginEnd = dp(6)
             })
 
+            val ipInfo = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                setOnClickListener { selectIp(item.ip, resultTable) }
+            }
+
             val ipText = TextView(this).apply {
                 text = item.ip
                 setTextColor(getThemeColor(R.attr.boxTextSecondary))
                 textSize = 12f
                 includeFontPadding = false
                 maxLines = 1
-                setOnClickListener { selectIp(item.ip, resultTable) }
             }
-            top.addView(ipText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            ipInfo.addView(ipText)
+
+            val timeText = TextView(this).apply {
+                text = if (item.testedAt > 0L) {
+                    java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                        .format(java.util.Date(item.testedAt))
+                } else {
+                    "时间未知"
+                }
+                setTextColor(getThemeColor(R.attr.boxTextMuted))
+                textSize = 9f
+                includeFontPadding = false
+                maxLines = 1
+            }
+            ipInfo.addView(timeText)
+
+            top.addView(ipInfo, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
             val retestSpinner = RetestSpinnerView(this).apply {
                 tag = "retest_spinner:${item.ip}"
@@ -772,7 +793,7 @@ class MainActivity : Activity() {
         vlessResults: List<VlessWsResult>
     ) {
         val section = TextView(this).apply {
-            text = "本次测速 · 真实节点验证"
+            text = "上次测试"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
