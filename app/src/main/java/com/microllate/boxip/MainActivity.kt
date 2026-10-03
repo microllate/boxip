@@ -1211,7 +1211,15 @@ class MainActivity : Activity() {
         selectedIp: String?,
         vlessResults: List<VlessWsResult>
     ) {
-        val card = createSectionCard()
+        val card = createSectionCard("last_test_card").apply {
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dp(8), 0, dp(8))
+            }
+        }
         resultTable.addView(card)
 
         card.addView(TextView(this).apply {
