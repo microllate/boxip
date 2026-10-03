@@ -1011,13 +1011,44 @@ class MainActivity : Activity() {
         val history = parseHistory(prefs.getString(KEY_HISTORY, null))
             .sortedByDescending { it.testedAt }
 
-        card.addView(TextView(this).apply {
+        val currentHistoryIndex = history.indexOfFirst { it.ip == selectedIp }
+        val historySummary = if (currentHistoryIndex >= 0) {
+            "共 ${history.size} 个 · 当前 ${currentHistoryIndex + 1}/${history.size}"
+        } else {
+            "共 ${history.size} 个 · 当前 —/${history.size}"
+        }
+
+        val historyHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        historyHeader.addView(TextView(this).apply {
             tag = "history_section_title"
             text = "历史记录"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(0, 0, 0, dp(10))
+            includeFontPadding = false
+        }, LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            1f
+        ))
+
+        historyHeader.addView(TextView(this).apply {
+            text = historySummary
+            setTextColor(getThemeColor(R.attr.boxTextMuted))
+            textSize = 11f
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
+        })
+
+        card.addView(historyHeader, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            bottomMargin = dp(10)
         })
 
         if (history.isEmpty()) {
