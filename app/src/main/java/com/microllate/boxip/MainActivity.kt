@@ -493,7 +493,8 @@ class MainActivity : Activity() {
                             break
                         }
                     } else {
-                        // Region mode keeps the original PoP-discovery flow:
+                        run regionFlow@ {
+                            // Region mode keeps the original PoP-discovery flow:
                         // TCP candidates -> 5s PoP observation -> target-PoP selection
                         // -> 30s quality test -> final real VLESS + WS verification.
                         val sampled = sampler.sample(ranges.ipv4)
@@ -532,7 +533,7 @@ class MainActivity : Activity() {
                             appendScanLog(
                                 "${selectedRegion.label} 模式 · 没有 TCP 可用候选，重新开始"
                             )
-                            continue
+                            return@regionFlow
                         }
 
                         runOnUiThread {
@@ -667,7 +668,7 @@ class MainActivity : Activity() {
                             appendScanLog(
                                 "${selectedRegion.label} 没有通过真实 VLESS + WS 的入口 · 重新随机探索"
                             )
-                            continue
+                            return@regionFlow
                         }
 
                         val qualityByIp = currentQualityResults.associateBy { it.result.ip }
@@ -723,7 +724,8 @@ class MainActivity : Activity() {
                         )
 
                         runOnUiThread { stageProgress.progress = 100 }
-                        break
+                            return@regionFlow
+                        }
                     }
 
                     if (stopIfRequested()) return@execute
