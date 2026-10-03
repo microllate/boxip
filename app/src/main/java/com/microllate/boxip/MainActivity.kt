@@ -500,6 +500,7 @@ class MainActivity : Activity() {
                             displayedResults,
                             realNodeCandidates,
                             realNodeResults,
+                            currentQualityResults,
                             selectedIp,
                             vlessResults
                         )
@@ -787,6 +788,36 @@ class MainActivity : Activity() {
             }
             row.addView(metricsRow)
 
+            val qualityRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            listOf(
+                "稳定性" to if (item.stabilityPercent > 0.0) {
+                    String.format(Locale.US, "%.1f%%", item.stabilityPercent)
+                } else {
+                    "-"
+                },
+                "评分" to if (item.totalScore > 0.0) {
+                    String.format(Locale.US, "%.1f", item.totalScore)
+                } else {
+                    "-"
+                }
+            ).forEach { (label, value) ->
+                qualityRow.addView(TextView(this).apply {
+                    text = "$label  $value"
+                    setTextColor(getThemeColor(R.attr.boxTextSecondary))
+                    textSize = 10.5f
+                    includeFontPadding = false
+                    maxLines = 1
+                }, LinearLayout.LayoutParams(
+                    0,
+                    dp(24),
+                    1f
+                ))
+            }
+            row.addView(qualityRow)
+
             val divider = View(this).apply {
                 setBackgroundColor(getThemeColor(R.attr.boxDivider))
             }
@@ -801,6 +832,7 @@ class MainActivity : Activity() {
         resultTable: LinearLayout,
         realNodeCandidates: List<CfstDownloadResult>,
         realNodeResults: List<CfstDownloadResult>,
+        qualityResults: List<CfstQualityResult>,
         selectedIp: String?,
         vlessResults: List<VlessWsResult>
     ) {
@@ -894,6 +926,7 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
         val existing = parseHistory(prefs.getString(KEY_HISTORY, null)).toMutableList()
         val metricsByIp = realNodeResults.associateBy { it.ip }
+        val qualityByIp = qualityResults.associateBy { it.result.ip }
 
         // History must come from the final third-stage quality results,
         // not from every IP that passed the second-stage VLESS + WS gate.
@@ -912,6 +945,8 @@ class MainActivity : Activity() {
                 speed = metrics?.downloadSpeedMbps ?: finalResult.downloadSpeedMbps,
                 pop = metrics?.pop ?: finalResult.pop,
                 vlessLatencyMs = verified.latencyMs ?: -1L,
+                stabilityPercent = metrics?.stabilityPercent ?: finalResult.stabilityPercent,
+                totalScore = qualityByIp[finalResult.ip]?.totalScore ?: 0.0,
                 testedAt = System.currentTimeMillis()
             )
             existing.removeAll { it.ip == item.ip }
@@ -1179,6 +1214,8 @@ class MainActivity : Activity() {
         val speed: Double,
         val pop: String?,
         val vlessLatencyMs: Long,
+        val stabilityPercent: Double,
+        val totalScore: Double,
         val testedAt: Long
     )
 
@@ -1198,6 +1235,8 @@ class MainActivity : Activity() {
                             speed = item.optDouble("speed", 0.0),
                             pop = item.optString("pop", "").ifEmpty { null },
                             vlessLatencyMs = item.optLong("vlessLatencyMs", -1L),
+                            stabilityPercent = item.optDouble("stabilityPercent", 0.0),
+                            totalScore = item.optDouble("totalScore", 0.0),
                             testedAt = item.optLong("testedAt", 0L)
                         )
                     )
@@ -1217,6 +1256,8 @@ class MainActivity : Activity() {
                 put("speed", item.speed)
                 put("pop", item.pop ?: "")
                 put("vlessLatencyMs", item.vlessLatencyMs)
+                put("stabilityPercent", item.stabilityPercent)
+                put("totalScore", item.totalScore)
                 put("testedAt", item.testedAt)
             })
         }
@@ -1244,6 +1285,8 @@ class MainActivity : Activity() {
                 speed = item.speed.takeIf { it > 0.0 } ?: old.speed,
                 pop = item.pop ?: old.pop,
                 vlessLatencyMs = item.vlessLatencyMs.takeIf { it >= 0L } ?: old.vlessLatencyMs,
+                stabilityPercent = item.stabilityPercent.takeIf { it > 0.0 } ?: old.stabilityPercent,
+                totalScore = old.totalScore.takeIf { it > 0.0 } ?: item.totalScore,
                 testedAt = item.testedAt
             )
         } else {
@@ -1431,6 +1474,8 @@ class MainActivity : Activity() {
                         speed = finalResult.downloadSpeedMbps,
                         pop = finalResult.pop,
                         vlessLatencyMs = vlessResult.latencyMs ?: -1L,
+                        stabilityPercent = finalResult.stabilityPercent,
+                        totalScore = 0.0,
                         testedAt = System.currentTimeMillis()
                     )
 
