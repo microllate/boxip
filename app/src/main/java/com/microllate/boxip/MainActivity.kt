@@ -292,6 +292,7 @@ class MainActivity : Activity() {
     ) {
         scanStopRequested = false
         startButton.isEnabled = false
+        startButton.text = "测速中…"
         themeButton.isEnabled = false
         regionSpinner.isEnabled = false
         statusText.text = "正在获取 Cloudflare IPv4 网段…"
@@ -335,6 +336,7 @@ class MainActivity : Activity() {
                     if (!scanStopRequested) return false
                     runOnUiThread {
                         startButton.isEnabled = true
+                        startButton.text = "开始测速"
                         themeButton.isEnabled = true
                         regionSpinner.isEnabled = true
                         stopScanButton.visibility = View.GONE
@@ -921,6 +923,7 @@ class MainActivity : Activity() {
                             renderHistorySection(resultTable, selectedIp, clearFirst = false)
 
                             startButton.isEnabled = true
+                            startButton.text = "开始测速"
                             themeButton.isEnabled = true
                             regionSpinner.isEnabled = true
                             stopScanButton.visibility = View.GONE
@@ -942,6 +945,7 @@ class MainActivity : Activity() {
                     statusText.text = "测速失败"
                     resultText.text = e.message ?: e.javaClass.simpleName
                     startButton.isEnabled = true
+                    startButton.text = "开始测速"
                     themeButton.isEnabled = true
                     regionSpinner.isEnabled = true
                     stopScanButton.visibility = View.GONE
