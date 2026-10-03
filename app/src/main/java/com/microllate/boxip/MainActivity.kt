@@ -586,7 +586,7 @@ class MainActivity : Activity() {
                             appendScanLog(
                                 "本次未观察到 ${selectedRegion.label} · 重新随机探索"
                             )
-                            continue
+                            return@regionFlow
                         }
 
                         runOnUiThread {
@@ -632,7 +632,7 @@ class MainActivity : Activity() {
                                 "${selectedRegion.label} 质量结果为空 · 重新随机探索"
                             )
                             runOnUiThread { stageProgress.progress = 0 }
-                            continue
+                            return@regionFlow
                         }
 
                         vlessResults = VlessWsScanner(
