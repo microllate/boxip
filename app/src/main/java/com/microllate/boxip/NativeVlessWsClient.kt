@@ -42,10 +42,11 @@ class NativeVlessWsClient(
         wsPath: String
     ): Result {
         val started = System.nanoTime()
+        var tcp: Socket? = null
         var socket: SSLSocket? = null
 
         return try {
-            val tcp = Socket()
+            tcp = Socket()
             network.bindSocket(tcp)
             tcp.connect(InetSocketAddress(ip, port), timeoutMs)
             tcp.soTimeout = timeoutMs
@@ -114,6 +115,7 @@ class NativeVlessWsClient(
             )
         } finally {
             runCatching { socket?.close() }
+            runCatching { tcp?.close() }
         }
     }
 }
