@@ -220,8 +220,27 @@ class MainActivity : Activity() {
 
             val ranges = CloudflareIpProvider().fetch()
 
-                    val physicalNetwork = connectivityManager.allNetworks
-                        .firstOrNull { network ->
+                    val activeNetwork = connectivityManager.activeNetwork
+                    val activeCapabilities = activeNetwork?.let {
+                        connectivityManager.getNetworkCapabilities(it)
+                    }
+
+                    val physicalNetwork = if (
+                        activeNetwork != null &&
+                        activeCapabilities != null &&
+                        !activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                        (activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                            activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) &&
+                        activeCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        activeCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    ) {
+                        // Prefer Android's current default physical network.
+                        activeNetwork
+                    } else {
+                        // If the default network is a VPN, fall back to a validated
+                        // physical Wi-Fi/cellular network rather than ever binding
+                        // the scanner to the VPN.
+                        connectivityManager.allNetworks.firstOrNull { network ->
                             val capabilities = connectivityManager.getNetworkCapabilities(network)
                             capabilities != null &&
                                 !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
@@ -230,6 +249,7 @@ class MainActivity : Activity() {
                                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                         }
+                    }
 
                     if (physicalNetwork == null) {
                         throw IllegalStateException("没有找到可用的 Wi-Fi/移动数据物理网络")
