@@ -32,9 +32,7 @@ class MainActivity : Activity() {
 
         fun notifyExternalSelectionChanged(ip: String) {
             activeInstance?.runOnUiThread { activity ->
-                activity.boundResultTable?.let { table ->
-                    activity.updateSelectionIndicators(table, ip)
-                }
+                activity.applyExternalSelection(ip)
             }
         }
 
@@ -77,6 +75,7 @@ class MainActivity : Activity() {
     private val historyExecutor = Executors.newCachedThreadPool()
     @Volatile private var scanStopRequested = false
     private var boundResultTable: LinearLayout? = null
+    private var currentSelectedIp: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         applySavedTheme()
@@ -147,6 +146,8 @@ class MainActivity : Activity() {
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
         })
+
+        currentSelectedIp = getPersistedSelectedIp()
 
         restoreLastResults(
             statusText,
@@ -1774,6 +1775,7 @@ class MainActivity : Activity() {
     private fun selectIp(ip: String, resultTable: LinearLayout) {
         // History entries and current scan entries use the exact same selection path.
         // Changing either one immediately changes the active BoxIP endpoint.
+        currentSelectedIp = ip
         BoxIpDnsServer.setCurrentIp(ip)
         persistSelectedIp(ip)
         updateSelectionIndicators(resultTable, ip)
@@ -1781,6 +1783,20 @@ class MainActivity : Activity() {
         resultTable.findViewWithTag<View>("history_row:$ip")?.let { row ->
             row.post { row.requestRectangleOnScreen(android.graphics.Rect(0, 0, row.width, row.height), false) }
         }
+    }
+
+    private fun applyExternalSelection(ip: String) {
+        currentSelectedIp = ip
+        persistSelectedIp(ip)
+
+        val table = boundResultTable ?: return
+        updateSelectionIndicators(table, ip)
+
+        // The history section is rendered from persisted history, while the
+        // currently selected IP is kept as Activity state. Refresh only the
+        // history section so an external switch is reflected immediately
+        // without destroying the current scan results.
+        renderHistorySection(table, ip, clearFirst = false)
     }
 
     private fun updateSelectionIndicators(resultTable: LinearLayout, selectedIp: String) {
