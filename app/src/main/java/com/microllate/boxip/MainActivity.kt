@@ -1087,7 +1087,10 @@ class MainActivity : Activity() {
                 background = createSelectorDrawable(item.ip == selectedIp)
                 isClickable = true
                 isFocusable = true
-                setOnClickListener { selectIp(item.ip, resultTable) }
+                setOnClickListener {
+                    Log.d("BoxIP", "History selector clicked: " + item.ip)
+                    selectIp(item.ip, resultTable)
+                }
             }
             top.addView(selector, LinearLayout.LayoutParams(dp(16), dp(16)).apply {
                 marginStart = dp(2)
