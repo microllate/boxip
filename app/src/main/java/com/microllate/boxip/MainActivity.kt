@@ -1811,7 +1811,7 @@ class MainActivity : Activity() {
         if (clearingSelectedIp) {
             currentSelectedIp = null
             ipSelectionExecutor.execute {
-                BoxIpDnsServer.setCurrentIp("")
+                BoxIpDnsServer.clearCurrentIp()
             }
         }
 
