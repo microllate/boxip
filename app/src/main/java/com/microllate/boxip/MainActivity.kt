@@ -1787,11 +1787,13 @@ class MainActivity : Activity() {
             .filterNot { it.ip == ip }
 
         val selectedIp = getPersistedSelectedIp()
-        val editor = prefs.edit().putString(KEY_HISTORY, serializeHistory(history))
+        val isCurrentScanIp = resultTable.findViewWithTag<View>(ip) != null
+        val clearingSelectedIp = selectedIp == ip && !isCurrentScanIp
 
-        if (selectedIp == ip && resultTable.findViewWithTag<View>(ip) == null) {
-            // If this IP is not part of the current scan results either, clear the active endpoint.
-            // Otherwise deleting its history entry must not disturb the current scan selection.
+        val editor = prefs.edit()
+            .putString(KEY_HISTORY, serializeHistory(history))
+
+        if (clearingSelectedIp) {
             editor.remove("selectedIp")
             val snapshotRaw = prefs.getString(KEY_RESULTS_SNAPSHOT, null)
             if (!snapshotRaw.isNullOrEmpty()) {
@@ -1802,31 +1804,24 @@ class MainActivity : Activity() {
                     }.toString()
                 }.onSuccess { editor.putString(KEY_RESULTS_SNAPSHOT, it) }
             }
-            BoxIpDnsServer.setCurrentIp("")
         }
 
         editor.commit()
 
-        // Remove only this history row. Keep the current scan results and their layout intact.
-        resultTable.findViewWithTag<View>("history_row:$ip")?.let { row ->
-            resultTable.removeView(row)
+        if (clearingSelectedIp) {
+            currentSelectedIp = null
+            ipSelectionExecutor.execute {
+                BoxIpDnsServer.setCurrentIp("")
+            }
         }
 
-        val remainingHistoryRows = (0 until resultTable.childCount)
-            .map { resultTable.getChildAt(it) }
-            .count { (it.tag as? String)?.startsWith("history_row:") == true }
-
-        if (remainingHistoryRows == 0 && history.isNotEmpty()) {
-            // No-op: this can only happen if the row was not currently rendered.
-        } else if (remainingHistoryRows == 0) {
-            resultTable.addView(TextView(this).apply {
-                tag = "history_empty"
-                text = "暂无通过真实 VLESS + WS 验证的节点"
-                setTextColor(getThemeColor(R.attr.boxTextSecondary))
-                textSize = 12f
-                setPadding(dp(4), dp(8), dp(4), dp(12))
-            })
-        }
+        // History rows live inside the history card. Re-render only that card so
+        // the row, empty state, and "当前 x/y" summary all stay consistent.
+        renderHistorySection(
+            resultTable,
+            if (clearingSelectedIp) null else getPersistedSelectedIp(),
+            clearFirst = false
+        )
     }
 
     private fun retestHistoryIp(ip: String, resultTable: LinearLayout) {
