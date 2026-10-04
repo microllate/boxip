@@ -2263,6 +2263,11 @@ class MainActivity : Activity() {
                 view.background = createSelectorDrawable(ip == selectedIp)
                 view.contentDescription =
                     if (ip == selectedIp) "当前使用 $ip" else "可用入口 $ip"
+            } else if (view is TextView && tag == selectedIp) {
+                // The "上次测试" rows use the IP itself as the selector tag.
+                // Keep their selector state synchronized with history rows.
+                view.background = createSelectorDrawable(true)
+                view.contentDescription = "当前使用 $ip"
             }
 
             if (view is android.view.ViewGroup) {
