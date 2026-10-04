@@ -1811,7 +1811,7 @@ class MainActivity : Activity() {
         if (clearingSelectedIp) {
             currentSelectedIp = null
             ipSelectionExecutor.execute {
-                BoxIpDnsServer.clearCurrentIp()
+                // Keep the active BoxIP hosts mapping intact. The selected IP is only\n                // removed from UI/history state; sing-box must always retain a valid hosts file.\n                BoxIpDnsServer.setCurrentIp(ip)
             }
         }
 
