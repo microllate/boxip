@@ -1,4 +1,5 @@
 package com.microllate.boxip
+import android.util.Log
 
 import android.app.Activity
 import android.content.Context
@@ -17,7 +18,9 @@ import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Spinner
@@ -37,6 +40,11 @@ class MainActivity : Activity() {
             }
         }
 
+        fun startScanExternally(): Boolean {
+            val activity = activeInstance ?: return false
+            return activity.runOnUiThreadAndStartScan()
+        }
+
         private const val PREFS = "boxip_ui"
         private const val KEY_THEME = "theme"
         private const val THEME_SYSTEM = 0
@@ -45,7 +53,10 @@ class MainActivity : Activity() {
         private const val KEY_REGION = "region"
         private const val KEY_RESULTS_SNAPSHOT = "snapshot"
         private const val KEY_HISTORY = "history"
-        private const val STAGE1_TCP_THRESHOLD_MS = 200L
+        private const val KEY_STAGE1_TCP_THRESHOLD_MS = "stage1TcpThresholdMs"
+        private const val DEFAULT_STAGE1_TCP_THRESHOLD_MS = 200L
+        private const val STAGE1_TCP_THRESHOLD_MIN_MS = 50
+        private const val STAGE1_TCP_THRESHOLD_MAX_MS = 500
         private const val STAGE1_BATCH_SIZE = 300
         private const val STAGE1_PING_TIMES = 4
         private const val STAGE1_TCP_TIMEOUT_MS = 1000
@@ -79,6 +90,7 @@ class MainActivity : Activity() {
 
     private val executor = Executors.newSingleThreadExecutor()
     private val historyExecutor = Executors.newCachedThreadPool()
+    private val ipSelectionExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var scanStopRequested = false
     private var boundResultTable: LinearLayout? = null
     private var currentSelectedIp: String? = null
@@ -90,6 +102,7 @@ class MainActivity : Activity() {
         activeInstance = this
 
         val rootLayout = findViewById<View>(R.id.rootLayout)
+        rootLayout.requestFocus()
         rootLayout.setOnApplyWindowInsetsListener { view, insets ->
             // Keep the app content below the status bar and above the navigation bar.
             // The 12dp base spacing preserves the intended visual margin.
@@ -110,6 +123,7 @@ class MainActivity : Activity() {
         val startButton = findViewById<Button>(R.id.startScanButton)
         val themeButton = findViewById<TextView>(R.id.themeButton)
         val regionSpinner = findViewById<Spinner>(R.id.regionSpinner)
+        val stage1ThresholdInput = findViewById<EditText>(R.id.stage1ThresholdInput)
         val rangesValue = findViewById<TextView>(R.id.rangesValue)
         val candidatesValue = findViewById<TextView>(R.id.candidatesValue)
         val tcpValue = findViewById<TextView>(R.id.tcpValue)
@@ -133,6 +147,19 @@ class MainActivity : Activity() {
                 .getInt(KEY_REGION, 0)
                 .coerceIn(0, regionOptions.lastIndex)
         )
+        val initialStage1Threshold = getStage1TcpThresholdMs()
+        stage1ThresholdInput.setText(initialStage1Threshold.toString())
+        stage1ThresholdInput.setOnEditorActionListener { view, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.hideSoftInputFromWindow(view.windowToken, 0)
+                view.clearFocus()
+                true
+            } else {
+                false
+            }
+        }
+
         regionSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
                 parent: android.widget.AdapterView<*>?,
@@ -180,469 +207,300 @@ class MainActivity : Activity() {
         }
 
         startButton.setOnClickListener {
-            scanStopRequested = false
-            startButton.isEnabled = false
-            themeButton.isEnabled = false
-            regionSpinner.isEnabled = false
-            statusText.text = "正在获取 Cloudflare IPv4 网段…"
-            resultText.visibility = View.VISIBLE
-            resultText.text = "准备测速…"
-            resultTable.visibility = View.GONE
-            resultTable.removeAllViews()
-            rangesValue.text = "—"
-            candidatesValue.text = "—"
-            tcpValue.text = "—"
-            downloadValue.text = "—"
-            stageProgress.visibility = View.GONE
-            stageProgress.progress = 0
-            stopScanButton.visibility = View.VISIBLE
-            stopScanButton.isEnabled = true
+            startScan(
+                startButton,
+                themeButton,
+                regionSpinner,
+                statusText,
+                resultText,
+                resultTable,
+                stage1ThresholdInput,
+                rangesValue,
+                candidatesValue,
+                tcpValue,
+                downloadValue,
+                stageProgress,
+                stopScanButton,
+                connectivityManager
+            )
+        }
 
-            executor.execute {
-                try {
-                    val scanStartMs = System.currentTimeMillis()
-                    val scanLog = StringBuilder()
+        if (intent?.action == StartScanReceiver.ACTION_START_SCAN) {
+            startScan(
+                startButton,
+                themeButton,
+                regionSpinner,
+                statusText,
+                resultText,
+                resultTable,
+                stage1ThresholdInput,
+                rangesValue,
+                candidatesValue,
+                tcpValue,
+                downloadValue,
+                stageProgress,
+                stopScanButton,
+                connectivityManager
+            )
+        }
+    }
 
-                    fun appendScanLog(message: String) {
-                        val elapsed = (System.currentTimeMillis() - scanStartMs) / 1000.0
-                        runOnUiThread {
-                            scanLog.append(String.format(Locale.US, "[%6.1fs] %s\n", elapsed, message))
-                            resultText.visibility = View.VISIBLE
-                            resultText.text = scanLog.toString()
+    override fun onNewIntent(intent: android.content.Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent?.action == StartScanReceiver.ACTION_START_SCAN) {
+            runOnUiThreadAndStartScan()
+        }
+    }
+
+    private fun runOnUiThreadAndStartScan(): Boolean {
+        val startButton = findViewById<Button>(R.id.startScanButton)
+        if (!startButton.isEnabled) return false
+
+        startScan(
+            startButton,
+            findViewById<TextView>(R.id.themeButton),
+            findViewById<Spinner>(R.id.regionSpinner),
+            findViewById<TextView>(R.id.statusText),
+            findViewById<TextView>(R.id.resultText),
+            findViewById<LinearLayout>(R.id.resultTable),
+            findViewById<EditText>(R.id.stage1ThresholdInput),
+            findViewById<TextView>(R.id.rangesValue),
+            findViewById<TextView>(R.id.candidatesValue),
+            findViewById<TextView>(R.id.tcpValue),
+            findViewById<TextView>(R.id.downloadValue),
+            findViewById<ProgressBar>(R.id.stageProgress),
+            findViewById<Button>(R.id.stopScanButton),
+            getSystemService(ConnectivityManager::class.java)
+        )
+        return true
+    }
+
+    private fun startScan(
+        startButton: Button,
+        themeButton: TextView,
+        regionSpinner: Spinner,
+        statusText: TextView,
+        resultText: TextView,
+        resultTable: LinearLayout,
+        stage1ThresholdInput: EditText,
+        rangesValue: TextView,
+        candidatesValue: TextView,
+        tcpValue: TextView,
+        downloadValue: TextView,
+        stageProgress: ProgressBar,
+        stopScanButton: Button,
+        connectivityManager: ConnectivityManager
+    ) {
+        scanStopRequested = false
+        startButton.isEnabled = false
+        startButton.text = "测速中…"
+        themeButton.isEnabled = false
+        regionSpinner.isEnabled = false
+        statusText.text = "正在获取 Cloudflare IPv4 网段…"
+        resultText.visibility = View.VISIBLE
+        resultText.text = "准备测速…"
+        resultTable.visibility = View.GONE
+        resultTable.removeAllViews()
+        rangesValue.text = "—"
+        candidatesValue.text = "—"
+        tcpValue.text = "—"
+        downloadValue.text = "—"
+        stageProgress.visibility = View.GONE
+        stageProgress.progress = 0
+        stopScanButton.visibility = View.VISIBLE
+        stopScanButton.isEnabled = true
+
+        val stage1ThresholdMs = stage1ThresholdInput.text.toString().trim().toIntOrNull()
+            ?.coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS)
+            ?: DEFAULT_STAGE1_TCP_THRESHOLD_MS.toInt()
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_STAGE1_TCP_THRESHOLD_MS, stage1ThresholdMs)
+            .apply()
+        stage1ThresholdInput.setText(stage1ThresholdMs.toString())
+
+        executor.execute {
+            try {
+                val scanStartMs = System.currentTimeMillis()
+                val scanLog = StringBuilder()
+
+                fun appendScanLog(message: String) {
+                    val elapsed = (System.currentTimeMillis() - scanStartMs) / 1000.0
+                    runOnUiThread {
+                        scanLog.append(String.format(Locale.US, "[%6.1fs] %s\n", elapsed, message))
+                        resultText.visibility = View.VISIBLE
+                        resultText.text = scanLog.toString()
+                    }
+                }
+
+                fun stopIfRequested(): Boolean {
+                    if (!scanStopRequested) return false
+                    runOnUiThread {
+                        startButton.isEnabled = true
+                        startButton.text = "开始测速"
+                        themeButton.isEnabled = true
+                        regionSpinner.isEnabled = true
+                        stopScanButton.visibility = View.GONE
+                        stageProgress.visibility = View.GONE
+                        stageProgress.progress = 0
+                        resultTable.removeAllViews()
+                        resultTable.visibility = View.VISIBLE
+                        restoreLastResults(
+                            statusText,
+                            resultText,
+                            resultTable,
+                            rangesValue,
+                            candidatesValue,
+                            tcpValue,
+                            downloadValue
+                        )
+                    }
+                    return true
+                }
+
+                appendScanLog("开始测速")
+                val selectedRegion = regionOptions[
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getInt(KEY_REGION, 0)
+                .coerceIn(0, regionOptions.lastIndex)
+        ]
+
+        val ranges = CloudflareIpProvider().fetch()
+
+                val activeNetwork = connectivityManager.activeNetwork
+                val activeCapabilities = activeNetwork?.let {
+                    connectivityManager.getNetworkCapabilities(it)
+                }
+
+                val physicalNetwork = if (
+                    activeNetwork != null &&
+                    activeCapabilities != null &&
+                    !activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    (activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                        activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) &&
+                    activeCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    activeCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                ) {
+                    // Prefer Android's current default physical network.
+                    activeNetwork
+                } else {
+                    // If the default network is a VPN, fall back to a validated
+                    // physical Wi-Fi/cellular network rather than ever binding
+                    // the scanner to the VPN.
+                    connectivityManager.allNetworks.firstOrNull { network ->
+                        val capabilities = connectivityManager.getNetworkCapabilities(network)
+                        capabilities != null &&
+                            !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                            (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) &&
+                            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    }
+                }
+
+                if (physicalNetwork == null) {
+                    throw IllegalStateException("没有找到可用的 Wi-Fi/移动数据物理网络")
+                }
+
+                val physicalCapabilities =
+                    connectivityManager.getNetworkCapabilities(physicalNetwork)
+                        ?: throw IllegalStateException("无法读取物理网络状态")
+
+                val networkKey = when {
+                    physicalCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+                    physicalCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                    else -> "other"
+                }
+
+                val sampler = CfstSampler(
+                    context = this@MainActivity,
+                    networkKey = networkKey
+                )
+
+                val results = mutableListOf<CfstScanResult>()
+                val candidates = mutableListOf<String>()
+                var vlessResults: List<VlessWsResult> = emptyList()
+                var downloadCandidates: List<CfstScanResult> = emptyList()
+                var downloadResults: List<CfstDownloadResult> = emptyList()
+                var regionResults: List<CfstDownloadResult> = emptyList()
+                var displayedResults: List<DownloadDisplayResult> = emptyList()
+                var realNodeCandidates: List<CfstDownloadResult> = emptyList()
+                var realNodeResults: List<CfstDownloadResult> = emptyList()
+                var finalQualityResults: List<CfstQualityResult> = emptyList()
+                var selectedIp: String? = null
+                var finalAvailableCount = 0
+
+                if (selectedRegion.pops.isEmpty()) {
+                    val testedIps = linkedSetOf<String>()
+                    var cycleIndex = 0
+
+                    while (true) {
+                        cycleIndex++
+
+                        val batch = sampler.sampleRandomBatch(ranges.ipv4, STAGE1_BATCH_SIZE)
+                            .filterNot(testedIps::contains)
+
+                        if (batch.isEmpty()) {
+                            throw IllegalStateException(
+                                "Cloudflare IP 地址池已耗尽，无法继续寻找可用入口"
+                            )
                         }
-                    }
 
-                    fun stopIfRequested(): Boolean {
-                        if (!scanStopRequested) return false
-                        runOnUiThread {
-                            statusText.text = "测速已手动停止"
-                            resultText.text = "本次测速已停止"
-                            startButton.isEnabled = true
-                            themeButton.isEnabled = true
-                            regionSpinner.isEnabled = true
-                            stopScanButton.visibility = View.GONE
-                        }
-                        return true
-                    }
-
-                    appendScanLog("开始测速")
-                    val selectedRegion = regionOptions[
-                getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .getInt(KEY_REGION, 0)
-                    .coerceIn(0, regionOptions.lastIndex)
-            ]
-
-            val ranges = CloudflareIpProvider().fetch()
-
-                    val activeNetwork = connectivityManager.activeNetwork
-                    val activeCapabilities = activeNetwork?.let {
-                        connectivityManager.getNetworkCapabilities(it)
-                    }
-
-                    val physicalNetwork = if (
-                        activeNetwork != null &&
-                        activeCapabilities != null &&
-                        !activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                        (activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                            activeCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) &&
-                        activeCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                        activeCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                    ) {
-                        // Prefer Android's current default physical network.
-                        activeNetwork
-                    } else {
-                        // If the default network is a VPN, fall back to a validated
-                        // physical Wi-Fi/cellular network rather than ever binding
-                        // the scanner to the VPN.
-                        connectivityManager.allNetworks.firstOrNull { network ->
-                            val capabilities = connectivityManager.getNetworkCapabilities(network)
-                            capabilities != null &&
-                                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                                (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                                    capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) &&
-                                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                        }
-                    }
-
-                    if (physicalNetwork == null) {
-                        throw IllegalStateException("没有找到可用的 Wi-Fi/移动数据物理网络")
-                    }
-
-                    val physicalCapabilities =
-                        connectivityManager.getNetworkCapabilities(physicalNetwork)
-                            ?: throw IllegalStateException("无法读取物理网络状态")
-
-                    val networkKey = when {
-                        physicalCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
-                        physicalCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
-                        else -> "other"
-                    }
-
-                    val sampler = CfstSampler(
-                        context = this@MainActivity,
-                        networkKey = networkKey
-                    )
-
-                    val results = mutableListOf<CfstScanResult>()
-                    val candidates = mutableListOf<String>()
-                    var vlessResults: List<VlessWsResult> = emptyList()
-                    var downloadCandidates: List<CfstScanResult> = emptyList()
-                    var downloadResults: List<CfstDownloadResult> = emptyList()
-                    var regionResults: List<CfstDownloadResult> = emptyList()
-                    var displayedResults: List<DownloadDisplayResult> = emptyList()
-                    var realNodeCandidates: List<CfstDownloadResult> = emptyList()
-                    var realNodeResults: List<CfstDownloadResult> = emptyList()
-                    var finalQualityResults: List<CfstQualityResult> = emptyList()
-                    var selectedIp: String? = null
-                    var finalAvailableCount = 0
-
-                    if (selectedRegion.pops.isEmpty()) {
-                        val testedIps = linkedSetOf<String>()
-                        var cycleIndex = 0
-
-                        while (true) {
-                            cycleIndex++
-
-                            val batch = sampler.sampleRandomBatch(ranges.ipv4, STAGE1_BATCH_SIZE)
-                                .filterNot(testedIps::contains)
-
-                            if (batch.isEmpty()) {
-                                throw IllegalStateException(
-                                    "Cloudflare IP 地址池已耗尽，无法继续寻找可用入口"
-                                )
-                            }
-
-                            testedIps += batch
-                            candidates += batch
-
-                            runOnUiThread {
-                                rangesValue.text = ranges.ipv4.size.toString()
-                                candidatesValue.text = testedIps.size.toString()
-                                statusText.text = "第一阶段 · TCP ≤ 200 ms 筛选"
-                                resultText.text = "随机测试 300 个 IP，寻找 TCP ≤ 200 ms 的入口…"
-                            }
-
-                            appendScanLog(
-                                "第 ${cycleIndex} 轮 · 第一阶段开始 · 随机 300 IP · TCP ≤ 200 ms"
-                            )
-
-                            val batchResults = CfstScanner(
-                                network = physicalNetwork,
-                                pingTimes = STAGE1_PING_TIMES,
-                                timeoutMs = STAGE1_TCP_TIMEOUT_MS,
-                                concurrency = STAGE1_CONCURRENCY
-                            ).scan(batch)
-
-                            results += batchResults
-
-                            val tcpCandidates = batchResults
-                                .filter {
-                                    it.received > 0 &&
-                                        (it.latencyMs ?: Long.MAX_VALUE) <= STAGE1_TCP_THRESHOLD_MS
-                                }
-                                .distinctBy { it.ip }
-
-                            appendScanLog(
-                                "第一阶段完成 · 本批 TCP ≤ 200 ms：${tcpCandidates.size} 个"
-                            )
-
-                            if (stopIfRequested()) return@execute
-
-                            if (tcpCandidates.isEmpty()) {
-                                appendScanLog("第一阶段结果为空 · 重新随机 300 个 IP")
-                                continue
-                            }
-
-                            runOnUiThread {
-                                statusText.text = "第二阶段 · 真实 VLESS + WS 验证"
-                            }
-                            appendScanLog(
-                                "第二阶段开始 · 原生 TLS → WS · ${tcpCandidates.size} 个入口"
-                            )
-
-                            val currentVlessResults = VlessWsScanner(
-                                network = physicalNetwork,
-                                timeoutMs = 8_000,
-                                concurrency = 4
-                            ).scan(
-                                ips = tcpCandidates.map { it.ip },
-                                host = "life.mozzarella.top",
-                                path = ""
-                            ) { result ->
-                                appendScanLog(
-                                    "VLESS ${result.ip} · " +
-                                        if (result.success) {
-                                            "成功 · ${result.latencyMs ?: "-"} ms · ${result.stage}"
-                                        } else {
-                                            "失败 · ${result.stage} · ${result.error ?: "未知错误"}"
-                                        }
-                                )
-                            }
-
-                            val currentVlessByIp = currentVlessResults.associateBy { it.ip }
-                            val verifiedCandidates = tcpCandidates.filter {
-                                currentVlessByIp[it.ip]?.success == true
-                            }
-
-                            appendScanLog(
-                                "第二阶段完成 · VLESS + WS 成功 ${verifiedCandidates.size} / ${tcpCandidates.size}"
-                            )
-
-                            if (stopIfRequested()) return@execute
-
-                            if (verifiedCandidates.isEmpty()) {
-                                appendScanLog("第二阶段结果为空 · 回到第一阶段重新随机 300 个 IP")
-                                continue
-                            }
-
-                            runOnUiThread {
-                                tcpValue.text = verifiedCandidates.size.toString()
-                                statusText.text = "第三阶段 · Cloudflare 入口质量"
-                                stageProgress.visibility = View.VISIBLE
-                                stageProgress.progress = 0
-                            }
-
-                            appendScanLog(
-                                "第三阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${verifiedCandidates.size} 个 IP"
-                            )
-
-                            val currentDownloadResults = CfstDownloader(
-                                network = physicalNetwork,
-                                observationMs = 30_000,
-                                probeIntervalMs = 5_000,
-                                connectTimeoutMs = 3_000,
-                                probeTimeoutMs = 3_000,
-                                concurrency = 3
-                            ).download(verifiedCandidates.map { it.ip }) { completed, total ->
-                                val percent =
-                                    (completed * 100 / total.coerceAtLeast(1)).coerceIn(0, 100)
-                                runOnUiThread {
-                                    stageProgress.progress = percent
-                                }
-                            }
-
-                            val currentQualityResults = CfstQualityScorer()
-                                .rank(currentDownloadResults.filter { it.minTcpConnectMs <= 200L })
-
-                            finalQualityResults = currentQualityResults
-
-                            appendScanLog(
-                                "第三阶段完成 · 最终质量结果 ${currentQualityResults.size} 个"
-                            )
-
-                            if (stopIfRequested()) return@execute
-
-                            if (currentQualityResults.isEmpty()) {
-                                appendScanLog("第三阶段结果为空 · 回到第一阶段重新开始")
-                                runOnUiThread { stageProgress.progress = 0 }
-                                continue
-                            }
-
-                            vlessResults = currentVlessResults
-                            finalAvailableCount = currentQualityResults.size
-                            downloadCandidates = verifiedCandidates
-                            downloadResults = currentDownloadResults
-                            regionResults = currentDownloadResults
-
-                            val qualityByIp = currentQualityResults.associateBy { it.result.ip }
-
-                            realNodeCandidates = currentQualityResults
-                                .take(10)
-                                .map { it.result }
-
-                            realNodeResults = realNodeCandidates.mapNotNull { candidate ->
-                                regionResults.firstOrNull { it.ip == candidate.ip }
-                            }
-
-                            selectedIp = currentQualityResults
-                                .firstOrNull()
-                                ?.result
-                                ?.ip
-                                ?: getPersistedSelectedIp()
-
-                            displayedResults = downloadCandidates.map { scanResult ->
-                                DownloadDisplayResult(
-                                    scanResult,
-                                    regionResults.firstOrNull { it.ip == scanResult.ip }
-                                )
-                            }.sortedWith(
-                                compareBy<DownloadDisplayResult> { it.downloadResult == null }
-                                    .thenByDescending { display ->
-                                        display.downloadResult?.let {
-                                            qualityByIp[display.scanResult.ip]?.totalScore
-                                        } ?: -1.0
-                                    }
-                                    .thenBy { it.downloadResult?.ttfbMs ?: Long.MAX_VALUE }
-                                    .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
-                                    .thenBy { it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE }
-                            )
-
-                            sampler.record(
-                                downloadCandidates.map { scanResult ->
-                                    val downloadResult =
-                                        currentDownloadResults.firstOrNull { it.ip == scanResult.ip }
-                                    CfstLearningObservation(
-                                        ip = scanResult.ip,
-                                        downloadSpeedMbps = downloadResult?.downloadSpeedMbps ?: 0.0,
-                                        latencyMs = scanResult.latencyMs,
-                                        success = downloadResult != null
-                                    )
-                                }
-                            )
-
-                            runOnUiThread { stageProgress.progress = 100 }
-                            break
-                        }
-                    } else {
-                        run regionFlow@ {
-                            // Region mode keeps the original PoP-discovery flow:
-                        // TCP candidates -> 5s PoP observation -> target-PoP selection
-                        // -> 30s quality test -> final real VLESS + WS verification.
-                        val sampled = sampler.sample(ranges.ipv4)
-                        candidates += sampled
+                        testedIps += batch
+                        candidates += batch
 
                         runOnUiThread {
                             rangesValue.text = ranges.ipv4.size.toString()
-                            candidatesValue.text = candidates.size.toString()
-                            statusText.text = "第一阶段 · 自适应 TCPing 443"
-                            resultText.text = "历史优选 + 随机探索，正在测试 ${sampled.size} 个候选 IP…"
+                            candidatesValue.text = testedIps.size.toString()
+                            statusText.text = "第一阶段 · TCP ≤ ${stage1ThresholdMs} ms 筛选"
+                            resultText.text = "随机测试 300 个 IP，寻找 TCP ≤ ${stage1ThresholdMs} ms 的入口…"
                         }
 
-                        appendScanLog("第一阶段开始 · TCPing 443 · ${sampled.size} 个候选 IP")
+                        appendScanLog(
+                            "第 ${cycleIndex} 轮 · 第一阶段开始 · 随机 300 IP · TCP ≤ ${stage1ThresholdMs} ms"
+                        )
 
-                        val sampledResults = CfstScanner(
+                        val batchResults = CfstScanner(
                             network = physicalNetwork,
-                            pingTimes = 4,
-                            timeoutMs = 1000,
-                            concurrency = 20
-                        ).scan(sampled)
+                            pingTimes = STAGE1_PING_TIMES,
+                            timeoutMs = STAGE1_TCP_TIMEOUT_MS,
+                            concurrency = STAGE1_CONCURRENCY
+                        ).scan(batch)
 
-                        results += sampledResults
+                        results += batchResults
+
+                        val tcpCandidates = batchResults
+                            .filter {
+                                it.received > 0 &&
+                                    (it.latencyMs ?: Long.MAX_VALUE) <= stage1ThresholdMs
+                            }
+                            .distinctBy { it.ip }
 
                         appendScanLog(
-                            "第一阶段完成 · TCP 可用 ${sampledResults.count { it.received > 0 }} / ${sampledResults.size}"
+                            "第一阶段完成 · 本批 TCP ≤ ${stage1ThresholdMs} ms：${tcpCandidates.size} 个"
                         )
 
                         if (stopIfRequested()) return@execute
 
-                        val initialCandidates = sampledResults
-                            .filter { it.received > 0 }
-                            .shuffled()
-                            .take(selectedRegion.candidateCount)
-
-                        if (initialCandidates.isEmpty()) {
-                            appendScanLog(
-                                "${selectedRegion.label} 模式 · 没有 TCP 可用候选，重新开始"
-                            )
-                            return@regionFlow
+                        if (tcpCandidates.isEmpty()) {
+                            appendScanLog("第一阶段结果为空 · 重新随机 300 个 IP")
+                            continue
                         }
 
                         runOnUiThread {
-                            tcpValue.text = initialCandidates.size.toString()
-                            statusText.text = "第二阶段 · ${selectedRegion.label} PoP 探索"
-                            resultText.text =
-                                "先用 ${initialCandidates.size} 个候选进行 5 秒轻量探测，寻找实际可达的 ${selectedRegion.label}…"
+                            statusText.text = "第二阶段 · 真实 VLESS + WS 验证"
                         }
-
                         appendScanLog(
-                            "第二阶段开始 · 5 秒 PoP 探索 · ${initialCandidates.size} 个候选"
+                            "第二阶段开始 · 原生 TLS → WS · ${tcpCandidates.size} 个入口"
                         )
 
-                        val discoveryResults = CfstDownloader(
-                            network = physicalNetwork,
-                            observationMs = 5_000,
-                            probeIntervalMs = 5_000,
-                            connectTimeoutMs = 3_000,
-                            probeTimeoutMs = 3_000,
-                            concurrency = 8
-                        ).download(initialCandidates.map { it.ip })
-
-                        val matchingDiscovery = discoveryResults
-                            .filter { it.pop in selectedRegion.pops }
-                            .sortedWith(
-                                compareByDescending<CfstDownloadResult> { it.stabilityPercent }
-                                    .thenBy { it.tlsHandshakeMs }
-                                    .thenBy { it.ttfbMs }
-                                    .thenBy { it.tcpConnectMs }
-                            )
-
-                        val matchingIps = matchingDiscovery
-                            .take(10)
-                            .map { it.ip }
-                            .toSet()
-
-                        downloadCandidates = sampledResults
-                            .filter { it.ip in matchingIps }
-                            .sortedBy { result ->
-                                matchingDiscovery.indexOfFirst { it.ip == result.ip }
-                            }
-
-                        appendScanLog(
-                            "PoP 探索完成 · ${selectedRegion.label} 匹配 ${downloadCandidates.size} 个"
-                        )
-
-                        if (stopIfRequested()) return@execute
-
-                        if (downloadCandidates.isEmpty()) {
-                            appendScanLog(
-                                "本次未观察到 ${selectedRegion.label} · 重新随机探索"
-                            )
-                            return@regionFlow
-                        }
-
-                        runOnUiThread {
-                            statusText.text = "第三阶段 · ${selectedRegion.label} 入口质量"
-                            resultText.text =
-                                "发现 ${downloadCandidates.size} 个 ${selectedRegion.label} 入口，正在进行 30 秒完整质量测试…"
-                            stageProgress.visibility = View.VISIBLE
-                            stageProgress.progress = 0
-                        }
-
-                        appendScanLog(
-                            "第三阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${downloadCandidates.size} 个 IP"
-                        )
-
-                        val currentDownloadResults = CfstDownloader(
-                            network = physicalNetwork,
-                            observationMs = 30_000,
-                            probeIntervalMs = 5_000,
-                            connectTimeoutMs = 3_000,
-                            probeTimeoutMs = 3_000,
-                            concurrency = 3
-                        ).download(downloadCandidates.map { it.ip }) { completed, total ->
-                            val percent =
-                                (completed * 100 / total.coerceAtLeast(1)).coerceIn(0, 100)
-                            runOnUiThread {
-                                stageProgress.progress = percent
-                            }
-                        }
-
-                        val currentQualityResults = CfstQualityScorer()
-                            .rank(currentDownloadResults)
-
-                        finalQualityResults = currentQualityResults
-
-                        appendScanLog(
-                            "第三阶段完成 · ${selectedRegion.label} 最终质量结果 ${currentQualityResults.size} 个"
-                        )
-
-                        if (stopIfRequested()) return@execute
-
-                        if (currentQualityResults.isEmpty()) {
-                            appendScanLog(
-                                "${selectedRegion.label} 质量结果为空 · 重新随机探索"
-                            )
-                            runOnUiThread { stageProgress.progress = 0 }
-                            return@regionFlow
-                        }
-
-                        vlessResults = VlessWsScanner(
+                        val currentVlessResults = VlessWsScanner(
                             network = physicalNetwork,
                             timeoutMs = 8_000,
                             concurrency = 4
                         ).scan(
-                            ips = currentQualityResults.take(10).map { it.result.ip },
+                            ips = tcpCandidates.map { it.ip },
                             host = "life.mozzarella.top",
                             path = ""
                         ) { result ->
@@ -656,60 +514,103 @@ class MainActivity : Activity() {
                             )
                         }
 
-                        val successfulVless = vlessResults
-                            .filter { it.success }
-                            .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
+                        val currentVlessByIp = currentVlessResults.associateBy { it.ip }
+                        val verifiedCandidates = tcpCandidates.filter {
+                            currentVlessByIp[it.ip]?.success == true
+                        }
 
                         appendScanLog(
-                            "真实 VLESS + WS 完成 · 成功 ${successfulVless.size} / ${vlessResults.size}"
+                            "第二阶段完成 · VLESS + WS 成功 ${verifiedCandidates.size} / ${tcpCandidates.size}"
                         )
 
                         if (stopIfRequested()) return@execute
 
-                        if (successfulVless.isEmpty()) {
-                            appendScanLog(
-                                "${selectedRegion.label} 没有通过真实 VLESS + WS 的入口 · 重新随机探索"
-                            )
-                            return@regionFlow
+                        if (verifiedCandidates.isEmpty()) {
+                            appendScanLog("第二阶段结果为空 · 回到第一阶段重新随机 300 个 IP")
+                            continue
                         }
+
+                        runOnUiThread {
+                            tcpValue.text = verifiedCandidates.size.toString()
+                            statusText.text = "第三阶段 · Cloudflare 入口质量"
+                            stageProgress.visibility = View.VISIBLE
+                            stageProgress.progress = 0
+                        }
+
+                        appendScanLog(
+                            "第三阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${verifiedCandidates.size} 个 IP"
+                        )
+
+                        val currentDownloadResults = CfstDownloader(
+                            network = physicalNetwork,
+                            observationMs = 30_000,
+                            probeIntervalMs = 5_000,
+                            connectTimeoutMs = 3_000,
+                            probeTimeoutMs = 3_000,
+                            concurrency = 3
+                        ).download(verifiedCandidates.map { it.ip }) { completed, total ->
+                            val percent =
+                                (completed * 100 / total.coerceAtLeast(1)).coerceIn(0, 100)
+                            runOnUiThread {
+                                stageProgress.progress = percent
+                            }
+                        }
+
+                        val currentQualityResults = CfstQualityScorer()
+                            .rank(currentDownloadResults.filter { it.minTcpConnectMs <= 200L })
+
+                        finalQualityResults = currentQualityResults
+
+                        appendScanLog(
+                            "第三阶段完成 · 最终质量结果 ${currentQualityResults.size} 个"
+                        )
+
+                        if (stopIfRequested()) return@execute
+
+                        if (currentQualityResults.isEmpty()) {
+                            appendScanLog("第三阶段结果为空 · 回到第一阶段重新开始")
+                            runOnUiThread { stageProgress.progress = 0 }
+                            continue
+                        }
+
+                        vlessResults = currentVlessResults
+                        finalAvailableCount = currentQualityResults.size
+                        downloadCandidates = verifiedCandidates
+                        downloadResults = currentDownloadResults
+                        regionResults = currentDownloadResults
 
                         val qualityByIp = currentQualityResults.associateBy { it.result.ip }
 
-                        downloadResults = currentDownloadResults
-                        regionResults = currentDownloadResults.filter {
-                            it.pop in selectedRegion.pops
-                        }
-                        realNodeCandidates = currentQualityResults.take(10).map { it.result }
+                        realNodeCandidates = currentQualityResults
+                            .take(10)
+                            .map { it.result }
+
                         realNodeResults = realNodeCandidates.mapNotNull { candidate ->
                             regionResults.firstOrNull { it.ip == candidate.ip }
                         }
-                        finalAvailableCount = currentQualityResults.size
 
-                        selectedIp = successfulVless
+                        selectedIp = currentQualityResults
                             .firstOrNull()
+                            ?.result
                             ?.ip
-                            ?: qualityByIp.keys.firstOrNull()
+                            ?: getPersistedSelectedIp()
 
                         displayedResults = downloadCandidates.map { scanResult ->
                             DownloadDisplayResult(
                                 scanResult,
                                 regionResults.firstOrNull { it.ip == scanResult.ip }
                             )
-                        }.filter { it.downloadResult != null }
-                            .sortedWith(
-                                compareByDescending<DownloadDisplayResult> {
-                                    qualityByIp[it.scanResult.ip]?.totalScore ?: -1.0
+                        }.sortedWith(
+                            compareBy<DownloadDisplayResult> { it.downloadResult == null }
+                                .thenByDescending { display ->
+                                    display.downloadResult?.let {
+                                        qualityByIp[display.scanResult.ip]?.totalScore
+                                    } ?: -1.0
                                 }
-                                    .thenBy {
-                                        it.downloadResult?.ttfbMs ?: Long.MAX_VALUE
-                                    }
-                                    .thenBy {
-                                        it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE
-                                    }
-                                    .thenBy {
-                                        it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE
-                                    }
-                            )
+                                .thenBy { it.downloadResult?.ttfbMs ?: Long.MAX_VALUE }
+                                .thenBy { it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE }
+                                .thenBy { it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE }
+                        )
 
                         sampler.record(
                             downloadCandidates.map { scanResult ->
@@ -725,97 +626,331 @@ class MainActivity : Activity() {
                         )
 
                         runOnUiThread { stageProgress.progress = 100 }
-                            return@regionFlow
-                        }
+                        break
                     }
+                } else {
+                    run regionFlow@ {
+                        // Region mode keeps the original PoP-discovery flow:
+                    // TCP candidates -> 5s PoP observation -> target-PoP selection
+                    // -> 30s quality test -> final real VLESS + WS verification.
+                    val sampled = sampler.sample(ranges.ipv4)
+                    candidates += sampled
+
+                    runOnUiThread {
+                        rangesValue.text = ranges.ipv4.size.toString()
+                        candidatesValue.text = candidates.size.toString()
+                        statusText.text = "第一阶段 · 自适应 TCPing 443"
+                        resultText.text = "历史优选 + 随机探索，正在测试 ${sampled.size} 个候选 IP…"
+                    }
+
+                    appendScanLog("第一阶段开始 · TCPing 443 · ${sampled.size} 个候选 IP")
+
+                    val sampledResults = CfstScanner(
+                        network = physicalNetwork,
+                        pingTimes = 4,
+                        timeoutMs = 1000,
+                        concurrency = 20
+                    ).scan(sampled)
+
+                    results += sampledResults
+
+                    appendScanLog(
+                        "第一阶段完成 · TCP 可用 ${sampledResults.count { it.received > 0 }} / ${sampledResults.size}"
+                    )
 
                     if (stopIfRequested()) return@execute
 
-                    selectedIp?.let { ip ->
-                        BoxIpDnsServer.setCurrentIp(ip)
+                    val initialCandidates = sampledResults
+                        .filter { it.received > 0 }
+                        .shuffled()
+                        .take(selectedRegion.candidateCount)
+
+                    if (initialCandidates.isEmpty()) {
+                        appendScanLog(
+                            "${selectedRegion.label} 模式 · 没有 TCP 可用候选，重新开始"
+                        )
+                        return@regionFlow
                     }
 
                     runOnUiThread {
-                        downloadValue.text = if (selectedRegion.pops.isEmpty()) {
-                            finalAvailableCount.toString()
-                        } else {
-                            regionResults.size.toString()
-                        }
-                        statusText.text = "测速完成 · 请确认查看结果"
+                        tcpValue.text = initialCandidates.size.toString()
+                        statusText.text = "第二阶段 · ${selectedRegion.label} PoP 探索"
+                        resultText.text =
+                            "先用 ${initialCandidates.size} 个候选进行 5 秒轻量探测，寻找实际可达的 ${selectedRegion.label}…"
+                    }
 
-                        saveLastResults(
-                            ranges.ipv4.size,
-                            candidates.size,
-                            results.size,
-                            if (selectedRegion.pops.isEmpty()) {
-                                finalAvailableCount
-                            } else {
-                                downloadResults.size
-                            },
-                            displayedResults,
-                            realNodeCandidates,
-                            realNodeResults,
-                            finalQualityResults,
-                            vlessResults.count { it.success },
-                            selectedIp,
-                            vlessResults
+                    appendScanLog(
+                        "第二阶段开始 · 5 秒 PoP 探索 · ${initialCandidates.size} 个候选"
+                    )
+
+                    val discoveryResults = CfstDownloader(
+                        network = physicalNetwork,
+                        observationMs = 5_000,
+                        probeIntervalMs = 5_000,
+                        connectTimeoutMs = 3_000,
+                        probeTimeoutMs = 3_000,
+                        concurrency = 8
+                    ).download(initialCandidates.map { it.ip })
+
+                    val matchingDiscovery = discoveryResults
+                        .filter { it.pop in selectedRegion.pops }
+                        .sortedWith(
+                            compareByDescending<CfstDownloadResult> { it.stabilityPercent }
+                                .thenBy { it.tlsHandshakeMs }
+                                .thenBy { it.ttfbMs }
+                                .thenBy { it.tcpConnectMs }
                         )
 
-                        resultTable.removeAllViews()
-                        resultTable.visibility = View.VISIBLE
+                    val matchingIps = matchingDiscovery
+                        .take(10)
+                        .map { it.ip }
+                        .toSet()
 
-                        val confirmButton = Button(this@MainActivity).apply {
-                            text = "确定，查看测速结果"
-                            textSize = 14f
-                            minHeight = 0
-                            minimumHeight = 0
-                            setBackgroundResource(R.drawable.bg_primary_button)
-                            setTextColor(getThemeColor(R.attr.boxOnAccent))
-                            setOnClickListener {
-                                resultText.visibility = View.GONE
-                                resultTable.removeAllViews()
-                                resultTable.visibility = View.VISIBLE
-                                statusText.text = if (selectedRegion.pops.isEmpty()) {
-                                    "测速完成 · 按入口连接质量排序"
+                    downloadCandidates = sampledResults
+                        .filter { it.ip in matchingIps }
+                        .sortedBy { result ->
+                            matchingDiscovery.indexOfFirst { it.ip == result.ip }
+                        }
+
+                    appendScanLog(
+                        "PoP 探索完成 · ${selectedRegion.label} 匹配 ${downloadCandidates.size} 个"
+                    )
+
+                    if (stopIfRequested()) return@execute
+
+                    if (downloadCandidates.isEmpty()) {
+                        appendScanLog(
+                            "本次未观察到 ${selectedRegion.label} · 重新随机探索"
+                        )
+                        return@regionFlow
+                    }
+
+                    runOnUiThread {
+                        statusText.text = "第三阶段 · ${selectedRegion.label} 入口质量"
+                        resultText.text =
+                            "发现 ${downloadCandidates.size} 个 ${selectedRegion.label} 入口，正在进行 30 秒完整质量测试…"
+                        stageProgress.visibility = View.VISIBLE
+                        stageProgress.progress = 0
+                    }
+
+                    appendScanLog(
+                        "第三阶段开始 · TCP / TLS / TTFB / 30 秒稳定性 · ${downloadCandidates.size} 个 IP"
+                    )
+
+                    val currentDownloadResults = CfstDownloader(
+                        network = physicalNetwork,
+                        observationMs = 30_000,
+                        probeIntervalMs = 5_000,
+                        connectTimeoutMs = 3_000,
+                        probeTimeoutMs = 3_000,
+                        concurrency = 3
+                    ).download(downloadCandidates.map { it.ip }) { completed, total ->
+                        val percent =
+                            (completed * 100 / total.coerceAtLeast(1)).coerceIn(0, 100)
+                        runOnUiThread {
+                            stageProgress.progress = percent
+                        }
+                    }
+
+                    val currentQualityResults = CfstQualityScorer()
+                        .rank(currentDownloadResults)
+
+                    finalQualityResults = currentQualityResults
+
+                    appendScanLog(
+                        "第三阶段完成 · ${selectedRegion.label} 最终质量结果 ${currentQualityResults.size} 个"
+                    )
+
+                    if (stopIfRequested()) return@execute
+
+                    if (currentQualityResults.isEmpty()) {
+                        appendScanLog(
+                            "${selectedRegion.label} 质量结果为空 · 重新随机探索"
+                        )
+                        runOnUiThread { stageProgress.progress = 0 }
+                        return@regionFlow
+                    }
+
+                    vlessResults = VlessWsScanner(
+                        network = physicalNetwork,
+                        timeoutMs = 8_000,
+                        concurrency = 4
+                    ).scan(
+                        ips = currentQualityResults.take(10).map { it.result.ip },
+                        host = "life.mozzarella.top",
+                        path = ""
+                    ) { result ->
+                        appendScanLog(
+                            "VLESS ${result.ip} · " +
+                                if (result.success) {
+                                    "成功 · ${result.latencyMs ?: "-"} ms · ${result.stage}"
                                 } else {
-                                    "测速完成 · ${selectedRegion.label}"
+                                    "失败 · ${result.stage} · ${result.error ?: "未知错误"}"
                                 }
-                                renderRealNodeSection(
-                                    resultTable,
-                                    realNodeCandidates,
-                                    realNodeResults,
-                                    finalQualityResults,
-                                    selectedIp,
-                                    vlessResults
-                                )
-                                renderHistorySection(resultTable, selectedIp, clearFirst = false)
-
-                                startButton.isEnabled = true
-                                themeButton.isEnabled = true
-                                regionSpinner.isEnabled = true
-                                stopScanButton.visibility = View.GONE
-                            }
-                        }
-
-                        resultTable.addView(
-                            confirmButton,
-                            LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT,
-                                dp(48)
-                            ).apply {
-                                setMargins(dp(4), dp(8), dp(4), dp(8))
-                            }
                         )
                     }
-                } catch (e: Exception) {
-                    runOnUiThread {
-                        statusText.text = "测速失败"
-                        resultText.text = e.message ?: e.javaClass.simpleName
-                        startButton.isEnabled = true
-                        themeButton.isEnabled = true
-                        regionSpinner.isEnabled = true
-                        stopScanButton.visibility = View.GONE
+
+                    val successfulVless = vlessResults
+                        .filter { it.success }
+                        .sortedBy { it.latencyMs ?: Long.MAX_VALUE }
+
+                    appendScanLog(
+                        "真实 VLESS + WS 完成 · 成功 ${successfulVless.size} / ${vlessResults.size}"
+                    )
+
+                    if (stopIfRequested()) return@execute
+
+                    if (successfulVless.isEmpty()) {
+                        appendScanLog(
+                            "${selectedRegion.label} 没有通过真实 VLESS + WS 的入口 · 重新随机探索"
+                        )
+                        return@regionFlow
                     }
+
+                    val qualityByIp = currentQualityResults.associateBy { it.result.ip }
+
+                    downloadResults = currentDownloadResults
+                    regionResults = currentDownloadResults.filter {
+                        it.pop in selectedRegion.pops
+                    }
+                    realNodeCandidates = currentQualityResults.take(10).map { it.result }
+                    realNodeResults = realNodeCandidates.mapNotNull { candidate ->
+                        regionResults.firstOrNull { it.ip == candidate.ip }
+                    }
+                    finalAvailableCount = currentQualityResults.size
+
+                    selectedIp = successfulVless
+                        .firstOrNull()
+                        ?.ip
+                        ?: qualityByIp.keys.firstOrNull()
+
+                    displayedResults = downloadCandidates.map { scanResult ->
+                        DownloadDisplayResult(
+                            scanResult,
+                            regionResults.firstOrNull { it.ip == scanResult.ip }
+                        )
+                    }.filter { it.downloadResult != null }
+                        .sortedWith(
+                            compareByDescending<DownloadDisplayResult> {
+                                qualityByIp[it.scanResult.ip]?.totalScore ?: -1.0
+                            }
+                                .thenBy {
+                                    it.downloadResult?.ttfbMs ?: Long.MAX_VALUE
+                                }
+                                .thenBy {
+                                    it.downloadResult?.tlsHandshakeMs ?: Long.MAX_VALUE
+                                }
+                                .thenBy {
+                                    it.downloadResult?.tcpConnectMs ?: Long.MAX_VALUE
+                                }
+                        )
+
+                    sampler.record(
+                        downloadCandidates.map { scanResult ->
+                            val downloadResult =
+                                currentDownloadResults.firstOrNull { it.ip == scanResult.ip }
+                            CfstLearningObservation(
+                                ip = scanResult.ip,
+                                downloadSpeedMbps = downloadResult?.downloadSpeedMbps ?: 0.0,
+                                latencyMs = scanResult.latencyMs,
+                                success = downloadResult != null
+                            )
+                        }
+                    )
+
+                    runOnUiThread { stageProgress.progress = 100 }
+                        return@regionFlow
+                    }
+                }
+
+                if (stopIfRequested()) return@execute
+
+                selectedIp?.let { ip ->
+                    BoxIpDnsServer.setCurrentIp(ip)
+                }
+
+                runOnUiThread {
+                    downloadValue.text = if (selectedRegion.pops.isEmpty()) {
+                        finalAvailableCount.toString()
+                    } else {
+                        regionResults.size.toString()
+                    }
+                    statusText.text = "测速完成 · 请确认查看结果"
+
+                    saveLastResults(
+                        ranges.ipv4.size,
+                        candidates.size,
+                        results.size,
+                        if (selectedRegion.pops.isEmpty()) {
+                            finalAvailableCount
+                        } else {
+                            downloadResults.size
+                        },
+                        displayedResults,
+                        realNodeCandidates,
+                        realNodeResults,
+                        finalQualityResults,
+                        vlessResults.count { it.success },
+                        selectedIp,
+                        vlessResults
+                    )
+
+                    resultTable.removeAllViews()
+                    resultTable.visibility = View.VISIBLE
+
+                    val confirmButton = Button(this@MainActivity).apply {
+                        text = "确定，查看测速结果"
+                        textSize = 14f
+                        minHeight = 0
+                        minimumHeight = 0
+                        setBackgroundResource(R.drawable.bg_primary_button)
+                        setTextColor(getThemeColor(R.attr.boxOnAccent))
+                        setOnClickListener {
+                            resultText.visibility = View.GONE
+                            resultTable.removeAllViews()
+                            resultTable.visibility = View.VISIBLE
+                            statusText.text = if (selectedRegion.pops.isEmpty()) {
+                                "测速完成 · 按入口连接质量排序"
+                            } else {
+                                "测速完成 · ${selectedRegion.label}"
+                            }
+                            renderRealNodeSection(
+                                resultTable,
+                                realNodeCandidates,
+                                realNodeResults,
+                                finalQualityResults,
+                                selectedIp,
+                                vlessResults
+                            )
+                            renderHistorySection(resultTable, selectedIp, clearFirst = false)
+
+                            startButton.isEnabled = true
+                            startButton.text = "开始测速"
+                            themeButton.isEnabled = true
+                            regionSpinner.isEnabled = true
+                            stopScanButton.visibility = View.GONE
+                        }
+                    }
+
+                    resultTable.addView(
+                        confirmButton,
+                        LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            dp(48)
+                        ).apply {
+                            setMargins(dp(4), dp(8), dp(4), dp(8))
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    statusText.text = "测速失败"
+                    resultText.text = e.message ?: e.javaClass.simpleName
+                    startButton.isEnabled = true
+                    startButton.text = "开始测速"
+                    themeButton.isEnabled = true
+                    regionSpinner.isEnabled = true
+                    stopScanButton.visibility = View.GONE
                 }
             }
         }
@@ -825,6 +960,25 @@ class MainActivity : Activity() {
         val scanResult: CfstScanResult,
         val downloadResult: CfstDownloadResult?
     )
+
+    private fun createSectionCard(tag: String? = null): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            if (tag != null) this.tag = tag
+            background = GradientDrawable().apply {
+                setColor(getThemeColor(R.attr.boxSurface))
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), getThemeColor(R.attr.boxDivider))
+            }
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dp(12), 0, dp(12))
+            }
+        }
+    }
 
     private fun renderHistorySection(
         resultTable: LinearLayout,
@@ -836,15 +990,22 @@ class MainActivity : Activity() {
         if (clearFirst) {
             resultTable.removeAllViews()
         } else {
-            val existingTitle = resultTable.findViewWithTag<TextView>("history_section_title")
-            if (existingTitle != null) {
-                val index = resultTable.indexOfChild(existingTitle)
-                if (index >= 0) {
-                    resultTable.removeViews(index, resultTable.childCount - index)
-                }
+            val existingCard = resultTable.findViewWithTag<LinearLayout>("history_section_card")
+            if (existingCard != null) {
+                resultTable.removeView(existingCard)
             }
         }
         resultTable.visibility = View.VISIBLE
+
+        val card = createSectionCard("history_section_card").apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(24)
+            }
+        }
+        resultTable.addView(card)
 
         val prefs = getSharedPreferences("boxip_results", Context.MODE_PRIVATE)
         // History order is independent of the currently selected IP:
@@ -852,27 +1013,53 @@ class MainActivity : Activity() {
         val history = parseHistory(prefs.getString(KEY_HISTORY, null))
             .sortedByDescending { it.testedAt }
 
-        // Visually separate historical nodes from the current scan section.
-        resultTable.addView(View(this).apply {
-            setBackgroundColor(getThemeColor(R.attr.boxDivider))
-        }, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            dp(1)
-        ).apply {
-            setMargins(dp(4), dp(16), dp(4), dp(8))
-        })
+        val currentHistoryIndex = history.indexOfFirst { it.ip == selectedIp }
+        val historySummary = if (currentHistoryIndex >= 0) {
+            "共 ${history.size} 个 · 当前 ${currentHistoryIndex + 1}/${history.size}"
+        } else {
+            "共 ${history.size} 个 · 当前 —/${history.size}"
+        }
 
-        resultTable.addView(TextView(this).apply {
+        val historyHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        historyHeader.addView(TextView(this).apply {
             tag = "history_section_title"
             text = "历史记录"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(4), dp(4), dp(4), dp(10))
+            includeFontPadding = false
+        }, LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            1f
+        ))
+
+        historyHeader.addView(TextView(this).apply {
+            text = historySummary
+            setTextColor(getThemeColor(R.attr.boxTextMuted))
+            textSize = 11f
+            includeFontPadding = false
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            marginStart = dp(8)
+        })
+
+        card.addView(historyHeader, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            bottomMargin = dp(10)
         })
 
         if (history.isEmpty()) {
-            resultTable.addView(TextView(this).apply {
+            card.addView(TextView(this).apply {
                 text = "暂无通过真实 VLESS + WS 验证的节点"
                 setTextColor(getThemeColor(R.attr.boxTextSecondary))
                 textSize = 12f
@@ -901,7 +1088,10 @@ class MainActivity : Activity() {
                 background = createSelectorDrawable(item.ip == selectedIp)
                 isClickable = true
                 isFocusable = true
-                setOnClickListener { selectIp(item.ip, resultTable) }
+                setOnClickListener {
+                    Log.d("BoxIP", "History selector clicked: " + item.ip)
+                    selectIp(item.ip, resultTable)
+                }
             }
             top.addView(selector, LinearLayout.LayoutParams(dp(16), dp(16)).apply {
                 marginStart = dp(2)
@@ -1055,7 +1245,7 @@ class MainActivity : Activity() {
                 setBackgroundColor(getThemeColor(R.attr.boxDivider))
             }
             row.addView(divider, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)))
-            resultTable.addView(row)
+            card.addView(row)
         }
 
         scrollView?.post { scrollView.scrollTo(0, savedScrollY) }
@@ -1069,14 +1259,30 @@ class MainActivity : Activity() {
         selectedIp: String?,
         vlessResults: List<VlessWsResult>
     ) {
-        val section = TextView(this).apply {
+        val card = createSectionCard("last_test_card").apply {
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dp(0), 0, dp(0))
+            }
+        }
+        resultTable.addView(card)
+        resultTable.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(24)
+            )
+        })
+
+        card.addView(TextView(this).apply {
             text = "上次测试"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(4), dp(18), dp(4), dp(10))
-        }
-        resultTable.addView(section)
+            setPadding(0, 0, 0, dp(10))
+        })
 
         val realNodeByIp = realNodeResults.associateBy { it.ip }
         val vlessByIp = vlessResults.associateBy { it.ip }
@@ -1111,7 +1317,7 @@ class MainActivity : Activity() {
             )
         }
         val realNodeWidths = contentColumnWidths(realNodeRows)
-        resultTable.addView(
+        card.addView(
             createResultRow(
                 "IP", "TCP", "TLS", "TTFB", "速度", "区域",
                 header = true,
@@ -1122,7 +1328,7 @@ class MainActivity : Activity() {
 
         sortedRealNodeCandidates.forEach { result ->
             val verified = realNodeByIp[result.ip]
-            resultTable.addView(
+            card.addView(
                 createResultRow(
                     result.ip,
                     verified?.let { "${it.tcpConnectMs}" } ?: "失败",
@@ -1345,14 +1551,22 @@ class MainActivity : Activity() {
         selectedIp: String? = null,
         vlessResults: List<RestoredVlessResult> = emptyList()
     ) {
-        val section = TextView(this).apply {
+        val card = createSectionCard("restored_last_test_card")
+        resultTable.addView(card)
+        resultTable.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(32)
+            )
+        })
+
+        card.addView(TextView(this).apply {
             text = "上次测试"
             setTextColor(getThemeColor(R.attr.boxTextPrimary))
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(dp(4), dp(18), dp(4), dp(10))
-        }
-        resultTable.addView(section)
+            setPadding(0, 0, 0, dp(10))
+        })
 
         val resultByIp = results.associateBy { it.ip }
         val vlessByIp = vlessResults.associateBy { it.ip }
@@ -1385,7 +1599,7 @@ class MainActivity : Activity() {
         }
 
         val widths = contentColumnWidths(rows)
-        resultTable.addView(
+        card.addView(
             createResultRow(
                 "IP", "TCP", "TLS", "TTFB", "速度", "区域",
                 header = true,
@@ -1396,7 +1610,7 @@ class MainActivity : Activity() {
 
         sortedCandidates.forEach { candidate ->
             val verified = resultByIp[candidate.ip]
-            resultTable.addView(
+            card.addView(
                 createResultRow(
                     candidate.ip,
                     verified?.let { "${it.tcpMs} ms" } ?: "失败",
@@ -1573,11 +1787,13 @@ class MainActivity : Activity() {
             .filterNot { it.ip == ip }
 
         val selectedIp = getPersistedSelectedIp()
-        val editor = prefs.edit().putString(KEY_HISTORY, serializeHistory(history))
+        val isCurrentScanIp = resultTable.findViewWithTag<View>(ip) != null
+        val clearingSelectedIp = selectedIp == ip && !isCurrentScanIp
 
-        if (selectedIp == ip && resultTable.findViewWithTag<View>(ip) == null) {
-            // If this IP is not part of the current scan results either, clear the active endpoint.
-            // Otherwise deleting its history entry must not disturb the current scan selection.
+        val editor = prefs.edit()
+            .putString(KEY_HISTORY, serializeHistory(history))
+
+        if (clearingSelectedIp) {
             editor.remove("selectedIp")
             val snapshotRaw = prefs.getString(KEY_RESULTS_SNAPSHOT, null)
             if (!snapshotRaw.isNullOrEmpty()) {
@@ -1588,31 +1804,24 @@ class MainActivity : Activity() {
                     }.toString()
                 }.onSuccess { editor.putString(KEY_RESULTS_SNAPSHOT, it) }
             }
-            BoxIpDnsServer.setCurrentIp("")
         }
 
         editor.commit()
 
-        // Remove only this history row. Keep the current scan results and their layout intact.
-        resultTable.findViewWithTag<View>("history_row:$ip")?.let { row ->
-            resultTable.removeView(row)
+        if (clearingSelectedIp) {
+            currentSelectedIp = null
+            ipSelectionExecutor.execute {
+                // Keep the active BoxIP hosts mapping intact. The selected IP is only\n                // removed from UI/history state; sing-box must always retain a valid hosts file.\n                BoxIpDnsServer.setCurrentIp(ip)
+            }
         }
 
-        val remainingHistoryRows = (0 until resultTable.childCount)
-            .map { resultTable.getChildAt(it) }
-            .count { (it.tag as? String)?.startsWith("history_row:") == true }
-
-        if (remainingHistoryRows == 0 && history.isNotEmpty()) {
-            // No-op: this can only happen if the row was not currently rendered.
-        } else if (remainingHistoryRows == 0) {
-            resultTable.addView(TextView(this).apply {
-                tag = "history_empty"
-                text = "暂无通过真实 VLESS + WS 验证的节点"
-                setTextColor(getThemeColor(R.attr.boxTextSecondary))
-                textSize = 12f
-                setPadding(dp(4), dp(8), dp(4), dp(12))
-            })
-        }
+        // History rows live inside the history card. Re-render only that card so
+        // the row, empty state, and "当前 x/y" summary all stay consistent.
+        renderHistorySection(
+            resultTable,
+            if (clearingSelectedIp) null else getPersistedSelectedIp(),
+            clearFirst = false
+        )
     }
 
     private fun retestHistoryIp(ip: String, resultTable: LinearLayout) {
@@ -2010,15 +2219,18 @@ class MainActivity : Activity() {
     }
 
     private fun selectIp(ip: String, resultTable: LinearLayout) {
-        // History entries and current scan entries use the exact same selection path.
-        // Changing either one immediately changes the active BoxIP endpoint.
+        // Update the UI immediately. Root file publishing and preference persistence
+        // can block on su/file I/O, so never perform them on the main thread.
         currentSelectedIp = ip
-        BoxIpDnsServer.setCurrentIp(ip)
-        persistSelectedIp(ip)
         updateSelectionIndicators(resultTable, ip)
 
         resultTable.findViewWithTag<View>("history_row:$ip")?.let { row ->
             row.post { row.requestRectangleOnScreen(android.graphics.Rect(0, 0, row.width, row.height), false) }
+        }
+
+        ipSelectionExecutor.execute {
+            BoxIpDnsServer.setCurrentIp(ip)
+            persistSelectedIp(ip)
         }
     }
 
@@ -2037,31 +2249,30 @@ class MainActivity : Activity() {
     }
 
     private fun updateSelectionIndicators(resultTable: LinearLayout, selectedIp: String) {
-        for (index in 0 until resultTable.childCount) {
-            val row = resultTable.getChildAt(index) as? LinearLayout ?: continue
-            val ipCell = row.getChildAt(0) as? LinearLayout
-            if (ipCell != null) {
-                val selector = ipCell.getChildAt(0) as? TextView
-                val ip = selector?.tag as? String
-                if (selector != null && ip != null) {
-                    selector.background = createSelectorDrawable(ip == selectedIp)
-                    selector.contentDescription = if (ip == selectedIp) "当前使用 $ip" else "可用入口 $ip"
-                }
+        // Result rows can now be nested inside section cards. Walk the full
+        // view tree instead of assuming IP rows are direct children.
+        fun update(view: android.view.View) {
+            val tag = view.tag as? String
+            if (view is TextView && tag?.startsWith("history_selector:") == true) {
+                val ip = tag.removePrefix("history_selector:")
+                view.background = createSelectorDrawable(ip == selectedIp)
+                view.contentDescription =
+                    if (ip == selectedIp) "当前使用 $ip" else "选择 $ip"
+            } else if (view is TextView && tag?.startsWith("selector:") == true) {
+                val ip = tag.removePrefix("selector:")
+                view.background = createSelectorDrawable(ip == selectedIp)
+                view.contentDescription =
+                    if (ip == selectedIp) "当前使用 $ip" else "可用入口 $ip"
             }
 
-            val topRow = row.getChildAt(0) as? LinearLayout
-            if (topRow != null) {
-                for (childIndex in 0 until topRow.childCount) {
-                    val child = topRow.getChildAt(childIndex)
-                    val tag = child.tag as? String
-                    if (child is TextView && tag?.startsWith("history_selector:") == true) {
-                        val ip = tag.removePrefix("history_selector:")
-                        child.background = createSelectorDrawable(ip == selectedIp)
-                        child.contentDescription = if (ip == selectedIp) "当前使用 $ip" else "选择 $ip"
-                    }
+            if (view is android.view.ViewGroup) {
+                for (index in 0 until view.childCount) {
+                    update(view.getChildAt(index))
                 }
             }
         }
+
+        update(resultTable)
     }
 
     private fun persistSelectedIp(ip: String) {
@@ -2109,9 +2320,8 @@ class MainActivity : Activity() {
 
         widths[0] = maxIpWidth + dp(14 + 2 + 6 + 4)
 
-        // Result table uses 8dp horizontal ScrollView padding plus the root
-        // side margins. Give every non-IP column the same share.
-        val available = resources.displayMetrics.widthPixels - dp(56)
+        // Result table fills the root content width. Give every non-IP column the same share.
+        val available = resources.displayMetrics.widthPixels - dp(64)
         val remaining = maxOf(0, available - widths[0])
         val each = remaining / 5
         var remainder = remaining % 5
@@ -2139,6 +2349,12 @@ class MainActivity : Activity() {
         } else {
             typedValue.data
         }
+    }
+
+    private fun getStage1TcpThresholdMs(): Int {
+        return getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_STAGE1_TCP_THRESHOLD_MS, DEFAULT_STAGE1_TCP_THRESHOLD_MS.toInt())
+            .coerceIn(STAGE1_TCP_THRESHOLD_MIN_MS, STAGE1_TCP_THRESHOLD_MAX_MS)
     }
 
     private fun dp(value: Int): Int {
@@ -2182,6 +2398,7 @@ class MainActivity : Activity() {
         boundResultTable = null
         executor.shutdownNow()
         historyExecutor.shutdownNow()
+        ipSelectionExecutor.shutdownNow()
         super.onDestroy()
     }
 }
