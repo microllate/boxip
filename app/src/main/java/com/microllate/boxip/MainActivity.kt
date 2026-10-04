@@ -2231,6 +2231,9 @@ class MainActivity : Activity() {
         ipSelectionExecutor.execute {
             BoxIpDnsServer.setCurrentIp(ip)
             persistSelectedIp(ip)
+            runOnUiThread {
+                renderHistorySection(resultTable, ip, clearFirst = false)
+            }
         }
     }
 
