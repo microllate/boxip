@@ -89,6 +89,7 @@ class MainActivity : Activity() {
 
     private val executor = Executors.newSingleThreadExecutor()
     private val historyExecutor = Executors.newCachedThreadPool()
+    private val ipSelectionExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var scanStopRequested = false
     private var boundResultTable: LinearLayout? = null
     private var currentSelectedIp: String? = null
@@ -2219,15 +2220,18 @@ class MainActivity : Activity() {
     }
 
     private fun selectIp(ip: String, resultTable: LinearLayout) {
-        // History entries and current scan entries use the exact same selection path.
-        // Changing either one immediately changes the active BoxIP endpoint.
+        // Update the UI immediately. Root file publishing and preference persistence
+        // can block on su/file I/O, so never perform them on the main thread.
         currentSelectedIp = ip
-        BoxIpDnsServer.setCurrentIp(ip)
-        persistSelectedIp(ip)
         updateSelectionIndicators(resultTable, ip)
 
         resultTable.findViewWithTag<View>("history_row:$ip")?.let { row ->
             row.post { row.requestRectangleOnScreen(android.graphics.Rect(0, 0, row.width, row.height), false) }
+        }
+
+        ipSelectionExecutor.execute {
+            BoxIpDnsServer.setCurrentIp(ip)
+            persistSelectedIp(ip)
         }
     }
 
@@ -2249,10 +2253,28 @@ class MainActivity : Activity() {
         for (index in 0 until resultTable.childCount) {
             val row = resultTable.getChildAt(index) as? LinearLayout ?: continue
 
-            // Section cards (for example the history card) are not IP result rows.
-            // Their first child can also be a LinearLayout, so never treat the
-            // section title as an IP selector.
-            if (row.tag is String) continue
+            // History rows have their selector inside the top row; update
+            // those selectors separately from normal result rows.
+            val rowTag = row.tag as? String
+            if (rowTag?.startsWith("history_row:") == true) {
+                val topRow = row.getChildAt(0) as? LinearLayout
+                if (topRow != null) {
+                    for (childIndex in 0 until topRow.childCount) {
+                        val child = topRow.getChildAt(childIndex)
+                        val tag = child.tag as? String
+                        if (child is TextView && tag?.startsWith("history_selector:") == true) {
+                            val historyIp = tag.removePrefix("history_selector:")
+                            child.background = createSelectorDrawable(historyIp == selectedIp)
+                            child.contentDescription =
+                                if (historyIp == selectedIp) "当前使用 $historyIp" else "选择 $historyIp"
+                        }
+                    }
+                }
+                continue
+            }
+
+            // Section cards are not IP result rows.
+            if (rowTag != null) continue
 
             val ipCell = row.getChildAt(0) as? LinearLayout
             if (ipCell != null) {
@@ -2402,6 +2424,7 @@ class MainActivity : Activity() {
         boundResultTable = null
         executor.shutdownNow()
         historyExecutor.shutdownNow()
+        ipSelectionExecutor.shutdownNow()
         super.onDestroy()
     }
 }
