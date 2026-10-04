@@ -1,4 +1,5 @@
 package com.microllate.boxip
+import android.util.Log
 
 import android.app.Activity
 import android.content.Context
