@@ -2357,6 +2357,17 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun isValidIpv4(ip: String): Boolean {
+        val parts = ip.split('.')
+        if (parts.size != 4) return false
+        return parts.all { part ->
+            part.isNotEmpty() &&
+                part.length <= 3 &&
+                part.all { it.isDigit() } &&
+                part.toIntOrNull()?.let { it in 0..255 } == true
+        }
+    }
+
     private fun getStage1TcpThresholdMs(): Int {
         return getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_STAGE1_TCP_THRESHOLD_MS, DEFAULT_STAGE1_TCP_THRESHOLD_MS.toInt())
