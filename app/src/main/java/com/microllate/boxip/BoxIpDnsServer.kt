@@ -32,17 +32,6 @@ object BoxIpDnsServer {
         }
     }
 
-    fun clearCurrentIp() {
-        currentIp = ""
-        try {
-            ensureRootDirectory()
-            runAsRoot("rm -f " + FILE_PATH)
-            Log.d(TAG, "Current IP cleared from hosts")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear current IP", e)
-        }
-    }
-
     fun getCurrentIp(): String = currentIp
 
     private fun ensureRootDirectory() {
