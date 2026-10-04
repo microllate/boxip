@@ -2248,6 +2248,12 @@ class MainActivity : Activity() {
     private fun updateSelectionIndicators(resultTable: LinearLayout, selectedIp: String) {
         for (index in 0 until resultTable.childCount) {
             val row = resultTable.getChildAt(index) as? LinearLayout ?: continue
+
+            // Section cards (for example the history card) are not IP result rows.
+            // Their first child can also be a LinearLayout, so never treat the
+            // section title as an IP selector.
+            if (row.tag is String) continue
+
             val ipCell = row.getChildAt(0) as? LinearLayout
             if (ipCell != null) {
                 val selector = ipCell.getChildAt(0) as? TextView
