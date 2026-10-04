@@ -55,22 +55,30 @@ class StartScanReceiver : BroadcastReceiver() {
             manager.createNotificationChannel(channel)
         }
 
-        if (
-            android.os.Build.VERSION.SDK_INT >= 33 &&
-            androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled().not()
-        ) {
-            return
+        val notification = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            android.app.Notification.Builder(context, channelId)
+                .setSmallIcon(com.microllate.boxip.R.drawable.boxip_icon)
+                .setContentTitle("BoxIP")
+                .setContentText("正在后台自动测速…")
+                .setOngoing(false)
+                .setAutoCancel(true)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            android.app.Notification.Builder(context)
+                .setSmallIcon(com.microllate.boxip.R.drawable.boxip_icon)
+                .setContentTitle("BoxIP")
+                .setContentText("正在后台自动测速…")
+                .setOngoing(false)
+                .setAutoCancel(true)
+                .build()
         }
 
-        val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(com.microllate.boxip.R.drawable.boxip_icon)
-            .setContentTitle("BoxIP")
-            .setContentText("正在后台自动测速…")
-            .setOngoing(false)
-            .setAutoCancel(true)
-            .build()
-
-        androidx.core.app.NotificationManagerCompat.from(context)
-            .notify(1001, notification)
+        if (android.os.Build.VERSION.SDK_INT < 33 ||
+            context.checkSelfPermission("android.permission.POST_NOTIFICATIONS") ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            manager.notify(1001, notification)
+        }
     }
 }
