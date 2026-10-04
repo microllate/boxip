@@ -2254,55 +2254,30 @@ class MainActivity : Activity() {
     }
 
     private fun updateSelectionIndicators(resultTable: LinearLayout, selectedIp: String) {
-        for (index in 0 until resultTable.childCount) {
-            val row = resultTable.getChildAt(index) as? LinearLayout ?: continue
-
-            // History rows have their selector inside the top row; update
-            // those selectors separately from normal result rows.
-            val rowTag = row.tag as? String
-            if (rowTag?.startsWith("history_row:") == true) {
-                val topRow = row.getChildAt(0) as? LinearLayout
-                if (topRow != null) {
-                    for (childIndex in 0 until topRow.childCount) {
-                        val child = topRow.getChildAt(childIndex)
-                        val tag = child.tag as? String
-                        if (child is TextView && tag?.startsWith("history_selector:") == true) {
-                            val historyIp = tag.removePrefix("history_selector:")
-                            child.background = createSelectorDrawable(historyIp == selectedIp)
-                            child.contentDescription =
-                                if (historyIp == selectedIp) "当前使用 $historyIp" else "选择 $historyIp"
-                        }
-                    }
-                }
-                continue
+        // Result rows can now be nested inside section cards. Walk the full
+        // view tree instead of assuming IP rows are direct children.
+        fun update(view: android.view.View) {
+            val tag = view.tag as? String
+            if (view is TextView && tag?.startsWith("history_selector:") == true) {
+                val ip = tag.removePrefix("history_selector:")
+                view.background = createSelectorDrawable(ip == selectedIp)
+                view.contentDescription =
+                    if (ip == selectedIp) "当前使用 $ip" else "选择 $ip"
+            } else if (view is TextView && tag?.startsWith("selector:") == true) {
+                val ip = tag.removePrefix("selector:")
+                view.background = createSelectorDrawable(ip == selectedIp)
+                view.contentDescription =
+                    if (ip == selectedIp) "当前使用 $ip" else "可用入口 $ip"
             }
 
-            // Section cards are not IP result rows.
-            if (rowTag != null) continue
-
-            val ipCell = row.getChildAt(0) as? LinearLayout
-            if (ipCell != null) {
-                val selector = ipCell.getChildAt(0) as? TextView
-                val ip = selector?.tag as? String
-                if (selector != null && ip != null) {
-                    selector.background = createSelectorDrawable(ip == selectedIp)
-                    selector.contentDescription = if (ip == selectedIp) "当前使用 $ip" else "可用入口 $ip"
-                }
-            }
-
-            val topRow = row.getChildAt(0) as? LinearLayout
-            if (topRow != null) {
-                for (childIndex in 0 until topRow.childCount) {
-                    val child = topRow.getChildAt(childIndex)
-                    val tag = child.tag as? String
-                    if (child is TextView && tag?.startsWith("history_selector:") == true) {
-                        val ip = tag.removePrefix("history_selector:")
-                        child.background = createSelectorDrawable(ip == selectedIp)
-                        child.contentDescription = if (ip == selectedIp) "当前使用 $ip" else "选择 $ip"
-                    }
+            if (view is android.view.ViewGroup) {
+                for (index in 0 until view.childCount) {
+                    update(view.getChildAt(index))
                 }
             }
         }
+
+        update(resultTable)
     }
 
     private fun persistSelectedIp(ip: String) {
