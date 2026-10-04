@@ -18,6 +18,15 @@ class StartScanReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != ACTION_START_SCAN) return
 
+        // If MainActivity is already alive (including while in the background),
+        // run the existing scan flow directly so the UI is not brought forward.
+        if (MainActivity.startScanExternally()) {
+            return
+        }
+
+        // Fall back to creating MainActivity only when the process/activity is
+        // not alive yet. This preserves the existing trigger behavior after
+        // the app process has been reclaimed by Android.
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             action = ACTION_START_SCAN
             addFlags(
